@@ -68,12 +68,12 @@ export class GrantVisualizer {
                 this.showWelcomeMessage();
                 return;
             }
-
+    
             const filteredData = this.dataManager.filterData(filters);
-
+    
             // Update stats display
             this.controls.updateStats(filteredData.stats);
-
+    
             // Update visualization
             this.networkViz.update(filteredData, this.dataManager.originalData.charities);
         } catch (error) {

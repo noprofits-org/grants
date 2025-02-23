@@ -184,6 +184,12 @@ export class DataManager {
     }
 
     filterData(filters) {
+        const cacheKey = JSON.stringify(filters);
+        if (this.filterCache.has(cacheKey)) {
+            console.log('Using cached result for filters:', filters);
+            return this.filterCache.get(cacheKey);
+        }
+    
         const { minAmount, maxOrgs, orgFilter, depth, selectedYears } = filters;
     
         // First, verify the organization exists
@@ -202,9 +208,9 @@ export class DataManager {
             selectedYears.includes(grant.tax_year)
         );
     
-        // If root has no grants in selected years, return early
+        // If root has no grants in selected years, return early with root only
         if (rootGrants.length === 0) {
-            return {
+            const result = {
                 grants: [],
                 orgs: new Set([orgFilter]),
                 connected: new Map([[orgFilter, 0]]),
@@ -214,6 +220,8 @@ export class DataManager {
                     showWarning
                 }
             };
+            this.filterCache.set(cacheKey, result);
+            return result;
         }
     
         // Step 2: Get other grants that meet minimum amount
@@ -227,8 +235,8 @@ export class DataManager {
         // Combine root grants with filtered other grants
         const filteredGrants = [...rootGrants, ...otherGrants];
     
-        // Step 3: Build connection map from root
-        const connected = new Map([[orgFilter, 0]]);
+        // Step 3: Build connection map from root, ensuring root is always at depth 0
+        const connected = new Map([[orgFilter, 0]]); // Force root at depth 0
         let currentDepth = 0;
         let addedNewOrgs = true;
     
@@ -252,6 +260,11 @@ export class DataManager {
             currentDepth++;
         }
     
+        // Ensure root is always included in connected map, even if no connections
+        if (!connected.has(orgFilter)) {
+            connected.set(orgFilter, 0);
+        }
+    
         // Step 4: Filter grants to only those between connected organizations
         const connectedGrants = filteredGrants.filter(grant => {
             const sourceDepth = connected.get(grant.filer_ein);
@@ -268,7 +281,7 @@ export class DataManager {
     
         const detailedStats = this.calculateDetailedStats(finalGrants);
     
-        return {
+        const result = {
             grants: finalGrants,
             orgs: topOrgs,
             connected,
@@ -282,13 +295,16 @@ export class DataManager {
             },
             filters: filters
         };
+    
+        this.filterCache.set(cacheKey, result);
+        return result;
     }
 
     getMaxGrantForOrg(orgEin) {
         if (!this.originalData || !this.originalData.grants) {
             return 0;
         }
-        
+
         let maxGrant = 0;
         this.originalData.grants.forEach(grant => {
             if ((grant.filer_ein === orgEin || grant.grant_ein === orgEin)) {

@@ -3,98 +3,21 @@
 
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Nonprofit Grant Flow Network</title>
     <link rel="icon" href="favicon.svg" type="image/svg+xml">
-    <style>
-        body {
-            margin: 0;
-            background: #0f172a;
-            color: white;
-            font-family: sans-serif;
-        }
-
-        #controls {
-            position: fixed;
-            top: 70px;
-            left: 10px;
-            background: rgba(0, 0, 0, 0.8);
-            padding: 15px;
-            border-radius: 4px;
-            z-index: 1000;
-            max-width: 300px;
-        }
-
-        .control-group {
-            margin-bottom: 10px;
-        }
-
-        label {
-            display: block;
-            margin-bottom: 5px;
-        }
-
-        input[type="number"],
-        input[type="text"] {
-            width: 100%;
-            padding: 5px;
-            margin-bottom: 10px;
-            background: #1e293b;
-            color: white;
-            border: 1px solid #475569;
-            border-radius: 4px;
-        }
-
-        select {
-            width: 100%;
-            padding: 5px;
-            margin-bottom: 10px;
-            background: #1e293b;
-            color: white;
-            border: 1px solid #475569;
-            border-radius: 4px;
-        }
-
-        button {
-            background: #4299e1;
-            color: white;
-            border: none;
-            padding: 5px 10px;
-            border-radius: 4px;
-            cursor: pointer;
-            width: 100%;
-        }
-
-        button:hover {
-            background: #3182ce;
-        }
-
-        #stats {
-            margin-top: 10px;
-            font-size: 0.9em;
-        }
-
-        .legend {
-            position: fixed;
-            bottom: 10px;
-            left: 10px;
-            background: rgba(0, 0, 0, 0.8);
-            padding: 15px;
-            border-radius: 4px;
-            font-size: 0.9em;
-        }
-    </style>
+    <link rel="stylesheet" href="styles.css">
 </head>
 
 <body>
-    <div id="citation"
-        style="position: fixed; top: 10px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.8); padding: 10px; border-radius: 4px; z-index: 1000;">
+    <div id="citation">
         Data sourced from joeisdone.github.io/charity (accessed January 2025)
     </div>
     <div id="controls">
         <div class="control-group">
             <label>Filter by Organization:</label>
-            <input type="text" id="orgFilter" placeholder="Enter EIN or organization name">
-            <select id="matchingOrgs" size="3" style="display: none;"></select>
+            <input type="text" id="orgFilter" placeholder="Enter EIN or organization name" aria-label="Filter by Organization">
+            <select id="matchingOrgs" size="3"></select>
         </div>
         <div id="yearFilterContainer">
             <label>Filter by Grant Years:</label>
@@ -109,15 +32,16 @@
                     min="0" 
                     max="100" 
                     value="0" 
-                    step="1"
-                    class="grant-slider">
+                    step="1" 
+                    class="grant-slider" 
+                    aria-label="Minimum Grant Amount">
                 <div class="amount-input-container">
                     <input 
                         type="number" 
                         id="minAmountInput" 
                         value="0" 
                         min="0" 
-                        max="100000000"
+                        max="100000000" 
                         class="amount-input">
                     <div id="minAmountDisplay" class="slider-value">$0</div>
                 </div>
@@ -131,14 +55,13 @@
             <label>Max Organizations to Show:</label>
             <input type="number" id="maxOrgs" value="14">
         </div>
-        <button id="updateViewBtn">Update View</button>
         <div id="stats"></div>
     </div>
 
     <div id="tooltip" class="tooltip"></div>
 
     <div class="legend">
-        <div style="margin-bottom: 10px;">
+        <div class="legend-section">
             <strong>Node Colors by Depth:</strong><br>
             <span style="color: #ef4444">●</span> Root Organization (Level 0)<br>
             <span style="color: #f97316">●</span> Direct Connections (Level 1)<br>
@@ -155,7 +78,7 @@
         </div>
     </div>
 
-    <svg id="network" style="width:100vw; height:100vh;"></svg>
+    <svg id="network"></svg>
 
     <!-- Load D3.js first -->
     <script src="https://d3js.org/d3.v7.min.js"></script>

@@ -94,7 +94,7 @@ export class Controls {
         const generateBtn = document.getElementById('generateBtn');
         const minAmountSlider = document.getElementById('minAmount');
         const minAmountDisplay = document.getElementById('minAmountDisplay');
-
+    
         // Remove update buttons as we'll update automatically
         if (updateViewBtn) {
             updateViewBtn.remove();
@@ -102,29 +102,44 @@ export class Controls {
         if (generateBtn) {
             generateBtn.remove();
         }
-
+    
         let searchTimeout;
         const handleSearch = (e) => {
-            const searchEl = e.target;
+            const searchEl = orgFilter;
             searchEl.classList.add('search-loading');
             clearTimeout(searchTimeout);
             searchTimeout = setTimeout(() => {
-                const matches = this.dataManager.searchOrganizations(searchEl.value);
+                const value = searchEl.value.trim();
+                if (!value) {
+                    searchEl.placeholder = "Enter EIN or organization name";
+                    this.updateOrgSearchResults([]);
+                    searchEl.classList.remove('search-loading');
+                    return;
+                }
+        
+                const matches = this.dataManager.searchOrganizations(value);
                 this.updateOrgSearchResults(matches);
+        
+                // Add suggestion preview if no value is entered yet
+                if (matches.length > 0 && !value) {
+                    const suggestion = matches[0];
+                    searchEl.placeholder = `Try: ${suggestion.name} (${suggestion.ein})`;
+                } else if (!value) {
+                    searchEl.placeholder = "Enter EIN or organization name";
+                }
+        
                 searchEl.classList.remove('search-loading');
-                // Update year checkboxes when org changes
-                this.setupYearCheckboxes(searchEl.value);
-                // Trigger update after org search
+                this.setupYearCheckboxes(value); // Use value instead of searchEl.value for consistency
                 const filters = this.getFilters();
                 this.onUpdate(filters);
-            }, 300);
+            }, DEBOUNCE_DELAY);
         };
-
+    
         // Organization filter with debounce
         if (orgFilter) {
             this.addListener(orgFilter, 'input', handleSearch);
         }
-
+    
         // Organization selection
         if (matchingOrgs) {
             this.addListener(matchingOrgs, 'click', (e) => {
@@ -137,7 +152,7 @@ export class Controls {
                 }
             });
         }
-
+    
         // Handle the minimum amount slider with immediate update
         if (minAmountSlider && minAmountDisplay) {
             const minAmountInput = document.getElementById('minAmountInput');
@@ -150,7 +165,7 @@ export class Controls {
                 const filters = this.getFilters();
                 this.onUpdate(filters);
             });
-
+    
             if (minAmountInput) {
                 this.addListener(minAmountInput, 'input', (e) => {
                     let value = parseInt(e.target.value);
@@ -164,7 +179,7 @@ export class Controls {
                 });
             }
         }
-
+    
         // Handle numeric inputs with immediate update
         ['maxOrgs', 'depth'].forEach(id => {
             const input = document.getElementById(id);
@@ -176,6 +191,44 @@ export class Controls {
                 });
             }
         });
+    }
+
+    // In Controls.js, add to addExportButton
+    addFilterPresets() {
+        const presetsDiv = document.createElement('div');
+        presetsDiv.className = 'preset-buttons';
+        presetsDiv.innerHTML = `
+        <button data-preset="small">Small Grants</button>
+        <button data-preset="large">Large Grants</button>
+        <button data-preset="recent">Recent Years</button>
+    `;
+        document.getElementById('controls').appendChild(presetsDiv);
+
+        presetsDiv.querySelectorAll('button').forEach(btn => {
+            this.addListener(btn, 'click', () => {
+                const preset = btn.dataset.preset;
+                this.applyPreset(preset);
+            });
+        });
+    }
+
+    applyPreset(preset) {
+        const filters = this.getFilters();
+        switch (preset) {
+            case 'small':
+                filters.minAmount = 1000;
+                filters.maxOrgs = 20;
+                break;
+            case 'large':
+                filters.minAmount = 1000000;
+                filters.maxOrgs = 10;
+                break;
+            case 'recent':
+                filters.selectedYears = [2023, 2022];
+                break;
+        }
+        this.updateControlsFromFilters(filters);
+        this.onUpdate(filters);
     }
 
     addListener(element, event, handler) {
