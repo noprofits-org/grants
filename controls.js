@@ -19,6 +19,7 @@ export class Controls {
             this.setupEventListeners();
             this.setupInputValidation();
             this.addExportButton();
+            this.addFilterPresets();
             this.setupYearCheckboxes();
 
         } catch (error) {
@@ -198,10 +199,14 @@ export class Controls {
         const presetsDiv = document.createElement('div');
         presetsDiv.className = 'preset-buttons';
         presetsDiv.innerHTML = `
-        <button data-preset="small">Small Grants</button>
-        <button data-preset="large">Large Grants</button>
-        <button data-preset="recent">Recent Years</button>
-    `;
+            <div class="preset-title">Quick Filters:</div>
+            <div class="preset-button-container">
+                <button data-preset="small" class="preset-button">Small Grants</button>
+                <button data-preset="large" class="preset-button">Large Grants</button>
+                <button data-preset="recent" class="preset-button">Recent Years</button>
+                <button data-preset="network" class="preset-button">Network Analysis</button>
+            </div>
+        `;
         document.getElementById('controls').appendChild(presetsDiv);
 
         presetsDiv.querySelectorAll('button').forEach(btn => {
@@ -213,23 +218,100 @@ export class Controls {
     }
 
     applyPreset(preset) {
+        // Get current filters to maintain any user-selected organization
         const filters = this.getFilters();
+        const currentOrg = filters.orgFilter;
+        
+        // Apply default values for most settings unless specified by preset
+        filters.maxOrgs = 15;
+        
         switch (preset) {
             case 'small':
-                filters.minAmount = 1000;
+                filters.minAmount = 1000; // $1,000
                 filters.maxOrgs = 20;
+                filters.depth = 1;
+                // Update slider display
+                const smallSliderValue = this.convertDollarsToSlider(1000);
+                document.getElementById('minAmount').value = smallSliderValue;
+                document.getElementById('minAmountDisplay').textContent = this.formatDollarAmount(1000);
                 break;
+                
             case 'large':
-                filters.minAmount = 1000000;
+                filters.minAmount = 1000000; // $1,000,000
                 filters.maxOrgs = 10;
+                filters.depth = 2;
+                // Update slider display
+                const largeSliderValue = this.convertDollarsToSlider(1000000);
+                document.getElementById('minAmount').value = largeSliderValue;
+                document.getElementById('minAmountDisplay').textContent = this.formatDollarAmount(1000000);
                 break;
+                
             case 'recent':
-                filters.selectedYears = [2023, 2022];
+                // Get the most recent years (up to 3)
+                const availableYears = this.dataManager.getAvailableYears(currentOrg);
+                filters.selectedYears = availableYears.slice(0, 3);
+                filters.minAmount = 50000; // $50,000
+                filters.depth = 1;
+                // Update year checkboxes
+                this.updateSelectedYears(filters.selectedYears);
+                const recentSliderValue = this.convertDollarsToSlider(50000);
+                document.getElementById('minAmount').value = recentSliderValue;
+                document.getElementById('minAmountDisplay').textContent = this.formatDollarAmount(50000);
+                break;
+                
+            case 'complex':
+                filters.minAmount = 500000; // $500,000
+                filters.maxOrgs = 25;
+                filters.depth = 3;
+                // Get a mix of years (most recent + some history)
+                const years = this.dataManager.getAvailableYears(currentOrg);
+                filters.selectedYears = years.slice(0, 5); // Last 5 years
+                // Update year checkboxes
+                this.updateSelectedYears(filters.selectedYears);
+                const complexSliderValue = this.convertDollarsToSlider(500000);
+                document.getElementById('minAmount').value = complexSliderValue;
+                document.getElementById('minAmountDisplay').textContent = this.formatDollarAmount(500000);
                 break;
         }
+        
+        // Update UI to match selected preset
         this.updateControlsFromFilters(filters);
         this.onUpdate(filters);
     }
+
+    updateSelectedYears(selectedYears) {
+        const checkboxes = document.querySelectorAll('input[name="yearFilter"]');
+        checkboxes.forEach(checkbox => {
+            const year = parseInt(checkbox.value);
+            checkbox.checked = selectedYears.includes(year);
+        });
+    }
+
+
+    updateControlsFromFilters(filters) {
+        // Update numeric inputs
+        if (document.getElementById('maxOrgs')) {
+            document.getElementById('maxOrgs').value = filters.maxOrgs;
+        }
+        
+        if (document.getElementById('depth')) {
+            document.getElementById('depth').value = filters.depth;
+        }
+        
+        // Update slider (min amount)
+        const sliderValue = this.convertDollarsToSlider(filters.minAmount);
+        if (document.getElementById('minAmount')) {
+            document.getElementById('minAmount').value = sliderValue;
+        }
+        
+        if (document.getElementById('minAmountInput')) {
+            document.getElementById('minAmountInput').value = filters.minAmount;
+        }
+        
+        if (document.getElementById('minAmountDisplay')) {
+            document.getElementById('minAmountDisplay').textContent = this.formatDollarAmount(filters.minAmount);
+        }
+    }    
 
     addListener(element, event, handler) {
         if (!element) {
