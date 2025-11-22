@@ -2,7 +2,7 @@
 const DEBOUNCE_DELAY = 300;
 
 export class Controls {
-    constructor(dataManager, onUpdate) {
+    constructor(dataManager, onUpdate, networkViz = null) {
 
         try {
             if (!dataManager) {
@@ -14,17 +14,57 @@ export class Controls {
 
             this.dataManager = dataManager;
             this.onUpdate = onUpdate;
+            this.networkViz = networkViz;
             this.eventListeners = new Map();
 
             this.setupEventListeners();
             this.setupInputValidation();
+            this.setupThemeToggle();
             this.addExportButton();
+            this.addZoomToFitButton();
             this.addFilterPresets();
             this.setupYearCheckboxes();
 
         } catch (error) {
             throw error;
         }
+    }
+
+    setupThemeToggle() {
+        // Check for saved theme preference or default to dark
+        const savedTheme = localStorage.getItem('theme') || 'dark';
+        if (savedTheme === 'light') {
+            document.body.classList.add('light-mode');
+        }
+
+        // Add event listener to theme toggle button
+        const themeToggle = document.getElementById('themeToggle');
+        if (themeToggle) {
+            this.addListener(themeToggle, 'click', () => {
+                document.body.classList.toggle('light-mode');
+                const isLight = document.body.classList.contains('light-mode');
+                localStorage.setItem('theme', isLight ? 'light' : 'dark');
+
+                // Update SVG background and text colors
+                this.updateVisualizationTheme(isLight);
+            });
+        }
+    }
+
+    updateVisualizationTheme(isLight) {
+        const svg = document.getElementById('network');
+        if (!svg) return;
+
+        // Update SVG background - this will be handled by the CSS
+        // But we need to update text colors in the visualization
+        const textColor = isLight ? '#0f172a' : 'white';
+        const secondaryColor = isLight ? '#64748b' : '#94a3b8';
+
+        d3.select('#network').selectAll('text')
+            .attr('fill', textColor);
+
+        d3.select('#network').selectAll('.text-group text:nth-child(2)')
+            .attr('fill', secondaryColor);
     }
 
     setupYearCheckboxes(currentOrg = '') {
@@ -192,6 +232,15 @@ export class Controls {
                 });
             }
         });
+
+        // Handle color scheme change
+        const colorScheme = document.getElementById('colorScheme');
+        if (colorScheme) {
+            this.addListener(colorScheme, 'change', () => {
+                const filters = this.getFilters();
+                this.onUpdate(filters);
+            });
+        }
     }
 
     // In Controls.js, add to addExportButton
@@ -368,12 +417,16 @@ export class Controls {
             selectedYears.push(...this.dataManager.getAvailableYears(currentOrg));
         }
 
+        const colorSchemeEl = document.getElementById('colorScheme');
+        const colorScheme = colorSchemeEl ? colorSchemeEl.value : 'depth';
+
         return {
             orgFilter: document.getElementById('orgFilter').value.trim(),
             minAmount: this.convertSliderToDollars(document.getElementById('minAmount').value),
             maxOrgs: Math.min(100, Math.max(1, parseInt(document.getElementById('maxOrgs').value) || 10)),
             selectedYears: selectedYears,
-            depth: Math.min(5, Math.max(1, parseInt(document.getElementById('depth').value) || 2))
+            depth: Math.min(5, Math.max(1, parseInt(document.getElementById('depth').value) || 2)),
+            colorScheme: colorScheme
         };
     }
 
@@ -395,6 +448,23 @@ export class Controls {
         if (controlsDiv) {
             controlsDiv.appendChild(exportBtn);
             this.addListener(exportBtn, 'click', () => this.exportVisualization());
+        }
+    }
+
+    addZoomToFitButton() {
+        const zoomBtn = document.createElement('button');
+        zoomBtn.textContent = 'Zoom to Fit';
+        zoomBtn.id = 'zoomToFitBtn';
+        zoomBtn.className = 'zoom-fit-button';
+
+        const controlsDiv = document.getElementById('controls');
+        if (controlsDiv) {
+            controlsDiv.appendChild(zoomBtn);
+            this.addListener(zoomBtn, 'click', () => {
+                if (this.networkViz && typeof this.networkViz.zoomToFit === 'function') {
+                    this.networkViz.zoomToFit();
+                }
+            });
         }
     }
 

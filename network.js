@@ -292,7 +292,11 @@ export class NetworkVisualization {
                             id: ein,
                             name: charity.filer_name || 'Unknown',
                             value: maxGrant / 10, // Set initial value
-                            depth: data.connected.get(ein) || 0
+                            depth: data.connected.get(ein) || 0,
+                            revenue: parseFloat(charity.receipt_amt) || 0,
+                            govtAmt: parseFloat(charity.govt_amt) || 0,
+                            contribAmt: parseFloat(charity.contrib_amt) || 0,
+                            grantAmt: parseFloat(charity.grant_amt) || 0
                         });
                     }
                 }
@@ -327,13 +331,14 @@ export class NetworkVisualization {
         }).filter(link => link.source && link.target); // Ensure both ends exist
     }
 
-    update(data, charities) {
+    update(data, charities, colorScheme = 'depth') {
         // Clear existing content
         this.svg.selectAll("*").remove();
         this.setupMarkers();  // Re-add markers after clear
-    
+
         if (!data || !data.grants || data.grants.length === 0) return;
-    
+
+        this.colorScheme = colorScheme || 'depth';
         const nodes = this.createNodes(data, charities);
         const links = this.createLinks(data.grants);
     
@@ -354,7 +359,7 @@ export class NetworkVisualization {
             this.activeNode = null;
         });
     
-        // Create forces simulation
+        // Create forces simulation with auto-stop
         this.simulation = d3.forceSimulation(nodes)
             .force("link", d3.forceLink(links)
                 .id(d => d.id)
@@ -374,8 +379,27 @@ export class NetworkVisualization {
                 this.height / 2
             ).strength(0.8))
             .velocityDecay(0.4)
-            .alphaDecay(0.01)
-            .on("tick", this.tick);
+            .alphaDecay(0.02)
+            .on("tick", this.tick)
+            .on("end", () => {
+                console.log("Simulation stabilized and stopped");
+            });
+
+        // Auto-stop simulation when it stabilizes
+        let tickCount = 0;
+        const maxTicks = 300;
+        const minAlpha = 0.001;
+
+        const originalTick = this.tick;
+        this.tick = () => {
+            originalTick.call(this);
+            tickCount++;
+
+            if (this.simulation.alpha() < minAlpha || tickCount > maxTicks) {
+                console.log(`Simulation stopped after ${tickCount} ticks (alpha: ${this.simulation.alpha().toFixed(4)})`);
+                this.simulation.stop();
+            }
+        };
     
         // Container for zoom
         const container = this.svg.append("g");
@@ -407,7 +431,7 @@ export class NetworkVisualization {
         // Add circles to nodes
         this.nodes.append("circle")
             .attr("r", d => this.calculateNodeRadius(d))
-            .attr("fill", d => this.getColorForDepth(d.depth))
+            .attr("fill", d => this.getNodeColor(d))
             .attr("stroke", "#4b5563")
             .attr("stroke-width", 2);
     
@@ -596,9 +620,55 @@ export class NetworkVisualization {
         }
     }
 
+    getNodeColor(node) {
+        if (!this.colorScheme || this.colorScheme === 'depth') {
+            return this.getColorForDepth(node.depth);
+        }
+
+        switch (this.colorScheme) {
+            case 'revenue':
+                return this.getColorByRevenue(node.revenue);
+            case 'govtFunding':
+                return this.getColorByGovtFunding(node.revenue, node.govtAmt);
+            case 'grantAmount':
+                return this.getColorByGrantAmount(node.grantAmt);
+            default:
+                return this.getColorForDepth(node.depth);
+        }
+    }
+
     getColorForDepth(depth) {
         const colors = ['#ef4444', '#f97316', '#84cc16', '#06b6d4', '#8b5cf6', '#ec4899'];
         return colors[depth] || '#6b7280';
+    }
+
+    getColorByRevenue(revenue) {
+        // Color scale: red (low) -> yellow -> green (high)
+        const scale = d3.scaleLog()
+            .domain([1000, 100000, 1000000, 10000000, 100000000])
+            .range(['#ef4444', '#f59e0b', '#84cc16', '#10b981', '#059669'])
+            .clamp(true);
+        return scale(Math.max(1000, revenue));
+    }
+
+    getColorByGovtFunding(revenue, govtAmt) {
+        if (revenue === 0) return '#6b7280';
+        const percentage = (govtAmt / revenue) * 100;
+        // Color scale: blue (low govt funding) -> purple -> red (high govt funding)
+        const scale = d3.scaleLinear()
+            .domain([0, 25, 50, 75, 100])
+            .range(['#3b82f6', '#8b5cf6', '#a855f7', '#ec4899', '#dc2626'])
+            .clamp(true);
+        return scale(percentage);
+    }
+
+    getColorByGrantAmount(grantAmt) {
+        // Color scale: light -> dark based on grant volume
+        const scale = d3.scaleLog()
+            .domain([1000, 100000, 1000000, 10000000, 100000000])
+            .range(['#fde68a', '#fbbf24', '#f59e0b', '#d97706', '#92400e'])
+            .clamp(true);
+        return scale(Math.max(1000, grantAmt));
     }
 
     resize(width, height) {
@@ -620,45 +690,6 @@ export class NetworkVisualization {
         if (this.activeNode) {
             this.addGrantLabels(this.activeNode);
         }
-    }
-
-    createNodes(data, charities) {
-        const nodes = new Map();
-
-        // Create value scale first
-        const maxGrant = Math.max(...data.grants.map(grant => parseFloat(grant.grant_amt)));
-        this.maxValue = maxGrant;
-
-        data.grants.forEach(grant => {
-            [grant.filer_ein, grant.grant_ein].forEach(ein => {
-                if (!nodes.has(ein)) {
-                    const charity = charities.find(c => c.filer_ein === ein);
-                    if (charity) {
-                        nodes.set(ein, {
-                            id: ein,
-                            name: charity.filer_name,
-                            value: maxGrant / 10, // Set initial value
-                            depth: data.connected.get(ein) || 0,
-                            x: this.width / 2 + (Math.random() - 0.5) * 100,
-                            y: this.height / 2 + (Math.random() - 0.5) * 100
-                        });
-                    }
-                }
-            });
-        });
-
-        // Update values after nodes are created
-        data.grants.forEach(grant => {
-            const amount = parseFloat(grant.grant_amt);
-            if (nodes.has(grant.filer_ein)) {
-                nodes.get(grant.filer_ein).value += amount;
-            }
-            if (nodes.has(grant.grant_ein)) {
-                nodes.get(grant.grant_ein).value += amount;
-            }
-        });
-
-        return Array.from(nodes.values());
     }
 
     createForceSimulation(nodes, links) {
