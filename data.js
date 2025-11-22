@@ -186,7 +186,8 @@ export class DataManager {
     filterData(filters) {
         const cacheKey = JSON.stringify(filters);
         if (this.filterCache.has(cacheKey)) {
-            console.log('Using cached result for filters:', filters);
+            // Using cached result - uncomment for debugging
+            // console.log('Using cached result for filters:', filters);
             return this.filterCache.get(cacheKey);
         }
     
@@ -194,7 +195,10 @@ export class DataManager {
     
         // First, verify the organization exists
         if (!this.charities[orgFilter]) {
-            console.warn('Organization not found:', orgFilter);
+            // Only warn if it looks like a complete EIN (all digits, 9 chars) or full name attempt
+            if (/^\d{9}$/.test(orgFilter) || orgFilter.length > 10) {
+                console.warn('Organization not found:', orgFilter);
+            }
             return this.createEmptyResult(orgFilter);
         }
     

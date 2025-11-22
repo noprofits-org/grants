@@ -380,10 +380,7 @@ export class NetworkVisualization {
             ).strength(0.8))
             .velocityDecay(0.4)
             .alphaDecay(0.02)
-            .on("tick", this.tick)
-            .on("end", () => {
-                console.log("Simulation stabilized and stopped");
-            });
+            .on("tick", this.tick);
 
         // Auto-stop simulation when it stabilizes
         let tickCount = 0;
@@ -396,7 +393,8 @@ export class NetworkVisualization {
             tickCount++;
 
             if (this.simulation.alpha() < minAlpha || tickCount > maxTicks) {
-                console.log(`Simulation stopped after ${tickCount} ticks (alpha: ${this.simulation.alpha().toFixed(4)})`);
+                // Simulation stopped - uncomment for debugging
+                // console.log(`Simulation stopped after ${tickCount} ticks (alpha: ${this.simulation.alpha().toFixed(4)})`);
                 this.simulation.stop();
             }
         };
