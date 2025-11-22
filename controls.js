@@ -584,14 +584,14 @@ export class Controls {
             }
         }
 
-        // Format numbers with commas
-        const formatNumber = num => num.toLocaleString();
+        // Format numbers with commas - handle undefined/null
+        const formatNumber = num => (num != null ? num.toLocaleString() : '0');
         const formatCurrency = num => new Intl.NumberFormat('en-US', {
             style: 'currency',
             currency: 'USD',
             minimumFractionDigits: 0,
             maximumFractionDigits: 0
-        }).format(num);
+        }).format(num || 0);
 
         statsEl.innerHTML = `
             <strong>Statistics</strong><br>
