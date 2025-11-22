@@ -17,7 +17,7 @@ export class DataManager {
             // Load charities first
             const charitiesZipBuf = await fetch('./charities.csv.zip').then(r => r.arrayBuffer());
             const charitiesZip = await JSZip.loadAsync(charitiesZipBuf);
-            const charitiesCsvString = await charitiesZip.file('charities_truncated.csv').async('string');  // Updated filename
+            const charitiesCsvString = await charitiesZip.file('charities.csv').async('string');
 
             // Parse charities data
             await new Promise((resolve, reject) => {
@@ -46,7 +46,7 @@ export class DataManager {
             // Load grants data
             const grantsZipBuf = await fetch('./grants.csv.zip').then(r => r.arrayBuffer());
             const grantsZip = await JSZip.loadAsync(grantsZipBuf);
-            const grantsCsvString = await grantsZip.file('grants_truncated.csv').async('string');  // Updated filename
+            const grantsCsvString = await grantsZip.file('grants.csv').async('string');
 
             // Parse grants data            
             await new Promise((resolve, reject) => {
@@ -106,13 +106,13 @@ export class DataManager {
     async loadCharitiesData() {
         const zipBuf = await fetch('./charities.csv.zip').then(r => r.arrayBuffer());
         const zip = await JSZip.loadAsync(zipBuf);
-        return zip.file('charities_truncated.csv').async('string');
+        return zip.file('charities.csv').async('string');
     }
 
     async loadGrantsData() {
         const zipBuf = await fetch('./grants.csv.zip').then(r => r.arrayBuffer());
         const zip = await JSZip.loadAsync(zipBuf);
-        return zip.file('grants_truncated.csv').async('string');
+        return zip.file('grants.csv').async('string');
     }
 
     validateData(charities, grants) {

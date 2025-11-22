@@ -10,7 +10,17 @@
 </head>
 
 <body>
+    <div id="loadingOverlay" class="loading-overlay">
+        <div class="loading-content">
+            <div class="spinner"></div>
+            <div class="loading-text">Loading data...</div>
+        </div>
+    </div>
+
     <div id="controls">
+        <button id="themeToggle" class="theme-toggle" title="Toggle dark/light mode">
+            <span class="theme-icon"></span>
+        </button>
         <div class="control-group">
             <label>Filter by Organization:</label>
             <input type="text" id="orgFilter" placeholder="Enter EIN or organization name" aria-label="Filter by Organization">
@@ -51,6 +61,15 @@
         <div class="control-group">
             <label>Max Organizations to Show:</label>
             <input type="number" id="maxOrgs" value="14">
+        </div>
+        <div class="control-group">
+            <label>Color Nodes By:</label>
+            <select id="colorScheme">
+                <option value="depth">Connection Depth</option>
+                <option value="revenue">Revenue Size</option>
+                <option value="govtFunding">Government Funding %</option>
+                <option value="grantAmount">Total Grants Given</option>
+            </select>
         </div>
         <div id="stats"></div>
     </div>
