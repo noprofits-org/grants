@@ -57,7 +57,7 @@ export class FlowGraph {
 
     setTheme(theme) {
         this.theme = theme;
-        if (this.nodes.length) this.paint();
+        if (this.nodes.length) { this.setupMarkers(); this.paint(); }
     }
 
     roleOf(n) {
@@ -78,18 +78,20 @@ export class FlowGraph {
 
         const byId = new Map(graph.charities.map(c => [c.filer_ein, c]));
         const depth = graph.connected;
-        const vols = graph.charities.map(c => c.receipt_amt || 1);
-        const maxVol = Math.max(1, ...vols);
+        // Clamp volume to >= 0: the engine claims data-shape agnosticism, and a
+        // negative would make Math.sqrt below NaN out the node radius (#26).
+        const vol = c => Math.max(0, c.receipt_amt || 0);
+        const maxVol = Math.max(1, ...graph.charities.map(vol));
 
         this.nodes = graph.charities.map(c => ({
             id: c.filer_ein,
             name: c.filer_name.replace(/^🏛\s*/, ''),
             kind: c.filer_ein.startsWith('A:') ? 'agency' : 'recipient',
             depth: depth.get(c.filer_ein) ?? 0,
-            vol: c.receipt_amt || 1,
+            vol: vol(c),
             inflow: c.govt_amt || 0,
             outflow: c.grant_amt || 0,
-            r: 16 + Math.sqrt((c.receipt_amt || 1) / maxVol) * 30,
+            r: 16 + Math.sqrt(vol(c) / maxVol) * 30,
         }));
         const nodeById = new Map(this.nodes.map(n => [n.id, n]));
 
@@ -114,7 +116,7 @@ export class FlowGraph {
             .force('link', d3.forceLink(this.links).id(d => d.id).distance(150).strength(0.15))
             .force('charge', d3.forceManyBody().strength(-900))
             .force('collide', d3.forceCollide().radius(d => d.r + 26).strength(1))
-            .velocityDecay(0.45).alphaDecay(0.025)
+            .velocityDecay(0.45).alphaDecay(0.025).alphaMin(0.01)  // stop the tail churn (#26)
             .on('tick', () => this.tick());
     }
 
@@ -169,7 +171,8 @@ export class FlowGraph {
     // node; the initial view shows the whole graph at full opacity.
     paint() {
         const p = this.pal();
-        this.setupMarkers();
+        // markers depend only on theme — set up in draw()/setTheme(), not here,
+        // so selection/flag repaints don't churn <defs> every time (#26).
         const sel = this.dim ? this.selectedId : null;
         const nbr = this.neighbors(sel);
 
@@ -236,9 +239,24 @@ export class FlowGraph {
             const maxDepth = d3.max(this.nodes, d => d.depth) || 1;
             const margin = Math.min(180, w * 0.16);
             const colW = (w - margin * 2) / Math.max(1, maxDepth);
+            // Give each node a distinct vertical target within its depth column
+            // by index, so a column holding many nodes (agency -> N recipients
+            // all land at one depth) fans across the height instead of piling
+            // into a single point and leaning entirely on forceCollide. Worst
+            // at maxDepth <= 1 — federal star graphs hit it constantly (#25).
+            const counts = new Map();
+            this.nodes.forEach(n => counts.set(n.depth, (counts.get(n.depth) || 0) + 1));
+            const seen = new Map();
+            const slot = new Map();
+            this.nodes.forEach(n => {
+                const i = seen.get(n.depth) || 0;
+                slot.set(n.id, (i + 0.5) / counts.get(n.depth));
+                seen.set(n.depth, i + 1);
+            });
+            const padY = Math.min(70, h * 0.1);
             this.simulation
                 .force('x', d3.forceX(d => margin + d.depth * colW).strength(1))
-                .force('y', d3.forceY(h / 2).strength(0.06))
+                .force('y', d3.forceY(d => padY + slot.get(d.id) * (h - 2 * padY)).strength(0.16))
                 .force('charge', d3.forceManyBody().strength(-500));
             this.simulation.force('link').distance(colW * 0.8).strength(0.1);
         } else {
@@ -279,8 +297,12 @@ export class FlowGraph {
     }
 
     zoomFit(pad = 0.86) {
-        if (!this.root.node().childNodes.length) return;
-        const b = this.root.node().getBBox();
+        // The 1200ms deferred call can fire after the SVG is detached/hidden
+        // (tab switch, re-render) — getBBox() throws on a non-rendered element.
+        const node = this.root.node();
+        if (!node.isConnected || !node.childNodes.length) return;
+        let b;
+        try { b = node.getBBox(); } catch { return; }   // (#26)
         if (!b.width || !b.height) return;
         const { w, h } = this.size();
         const scale = Math.min(2, pad / Math.max(b.width / w, b.height / h));
