@@ -10,6 +10,8 @@ html, body { margin: 0; padding: 0; height: 100%; }
   --line:#E4DFD5; --line2:#D7D1C5; --rule:#16140F;
   --accent:#362C17; --accent-text:#6A5526; --chip-bg:#EFE9DD;
   --alert:#7A3320; --alert-bg:#F3E4DC;
+  /* graph renderer role colors — single source of truth for flow-graph.js (#18) */
+  --grantee:#C9BfA6; --grantee-stroke:#A89B78; --edge:#CFC8BA; --edge-label:#7C7E80;
 }
 [data-theme="dark"] {
   --bg:#141310; --bg-soft:#1C1A14; --bg-soft2:#211E17; --panel:#1A1813; --canvas:#100F0C;
@@ -17,6 +19,7 @@ html, body { margin: 0; padding: 0; height: 100%; }
   --line:#2E2A22; --line2:#3A352B; --rule:#5A5446;
   --accent:#C9B48A; --accent-text:#CBB78E; --chip-bg:#2A261D;
   --alert:#C98A6E; --alert-bg:#2C1D17;
+  --grantee:#6E6450; --grantee-stroke:#857A63; --edge:#3A352B; --edge-label:#A8A69C;
 }
 
 body {
