@@ -224,19 +224,20 @@ export class NetworkVisualization {
         const defs = this.svg.append("defs");
         const colors = ['#ef4444', '#f97316', '#84cc16', '#06b6d4', '#8b5cf6', '#ec4899'];
 
-        // markerUnits="userSpaceOnUse" keeps arrowheads a FIXED pixel size instead
-        // of scaling with stroke-width. Without it, a thick (high-dollar) link
-        // blows the arrowhead up to hundreds of px. refX≈10 puts the tip at the
-        // line end (the link path already stops at the target node's edge).
+        // Arrowheads scale WITH stroke-width (markerUnits defaults to strokeWidth),
+        // so the head stays proportional to the line. This is fine now that link
+        // widths are log-normalized to 1–10px; the earlier ~700px triangles came
+        // from un-normalized ~95px strokes, not from proportional markers.
+        // markerWidth 4 → heads ≈ 4–40px. refX=10 puts the tip at the line end
+        // (the link path already stops at the target node's edge).
         colors.forEach((color, i) => {
             defs.append("marker")
                 .attr("id", `arrow-${i}`)
                 .attr("viewBox", "0 -5 10 10")
                 .attr("refX", 10)
                 .attr("refY", 0)
-                .attr("markerUnits", "userSpaceOnUse")
-                .attr("markerWidth", 13)
-                .attr("markerHeight", 13)
+                .attr("markerWidth", 4)
+                .attr("markerHeight", 4)
                 .attr("orient", "auto")
                 .append("path")
                 .attr("d", "M0,-5L10,0L0,5")
@@ -248,9 +249,8 @@ export class NetworkVisualization {
             .attr("viewBox", "0 -5 10 10")
             .attr("refX", 10)
             .attr("refY", 0)
-            .attr("markerUnits", "userSpaceOnUse")
-            .attr("markerWidth", 13)
-            .attr("markerHeight", 13)
+            .attr("markerWidth", 4)
+            .attr("markerHeight", 4)
             .attr("orient", "auto")
             .append("path")
             .attr("d", "M0,-5L10,0L0,5")
@@ -347,7 +347,13 @@ export class NetworkVisualization {
         this.colorScheme = colorScheme || 'depth';
         const nodes = this.createNodes(data, charities);
         const links = this.createLinks(data.grants);
-    
+
+        // Keep references so the layout can be re-toggled (organic <-> layered)
+        // without re-fetching or re-drawing.
+        this._nodes = nodes;
+        this._links = links;
+        this.layoutMode = 'force';
+
         // Initialize positions in a circle
         const centerX = this.width / 2;
         const centerY = this.height / 2;
@@ -540,6 +546,47 @@ export class NetworkVisualization {
             this.svg.select(".zoom-controls circle")
                 .attr("cy", 105);
         }, 100);
+    }
+
+    // De-tangle: arrange nodes in left-to-right columns by depth (0 on the left,
+    // deepest on the right) by swapping the force config. 'force' restores the
+    // organic radial layout. The shared tick handler renders either one.
+    applyLayout(mode = 'force') {
+        if (!this.simulation || !this._nodes) return;
+        this.layoutMode = mode;
+        const nodes = this._nodes;
+        // release any positions pinned by dragging so the layout can move them
+        nodes.forEach(n => { n.fx = null; n.fy = null; });
+
+        if (mode === 'layered') {
+            const maxDepth = d3.max(nodes, d => d.depth) || 1;
+            const margin = 160;
+            const colW = (this.width - margin * 2) / Math.max(1, maxDepth);
+            this.simulation
+                .force("radial", null)
+                .force("center", null)
+                .force("charge", d3.forceManyBody().strength(-500))
+                .force("collision", d3.forceCollide()
+                    .radius(d => this.calculateNodeRadius(d) + 16).strength(1))
+                .force("x", d3.forceX(d => margin + d.depth * colW).strength(1))
+                .force("y", d3.forceY(this.height / 2).strength(0.05));
+            this.simulation.force("link").distance(colW * 0.85).strength(0.12);
+        } else {
+            this.simulation
+                .force("x", null)
+                .force("y", null)
+                .force("charge", d3.forceManyBody().strength(-5000))
+                .force("collision", d3.forceCollide()
+                    .radius(d => this.calculateNodeRadius(d) + 30).strength(1))
+                .force("radial", d3.forceRadial(
+                    d => d.depth === 0 ? 0 : 300, this.width / 2, this.height / 2).strength(0.8));
+            this.simulation.force("link")
+                .distance(d => this.calculateNodeRadius(d.source) + this.calculateNodeRadius(d.target) + 100)
+                .strength(0.5);
+        }
+        this.simulation.alpha(0.9).restart();
+        clearTimeout(this._fitTimer);
+        this._fitTimer = setTimeout(() => this.zoomToFit(0.9), 1300);
     }
 
     tick() {
