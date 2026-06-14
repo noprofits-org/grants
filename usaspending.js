@@ -7,9 +7,12 @@
 // the exact { grants, charities, connected } shape network.js already consumes.
 //
 // Node id scheme:
-//   agency    -> "A:<Awarding Agency (toptier)>"
+//   agency    -> "A:<Awarding Sub Agency>"  (the real funder: NIH, HRSA, CMS…,
+//                falling back to the top-tier department when no sub-agency)
 //   recipient -> "R:<Recipient Name>"
 // Money flows agency -> recipient, so an edge is { filer_ein: agencyId, grant_ein: recipientId }.
+// Agency nodes carry the USAspending tier ('subtier'|'toptier') so they expand
+// against the correct agencies-filter tier on the next BFS hop.
 
 const API = 'https://api.usaspending.gov';
 
@@ -72,7 +75,11 @@ export class USASpendingDataManager {
 
     // --- edge fetching (one network hop) -----------------------------------
 
-    // A recipient's inbound awards, grouped by funding (toptier) agency.
+    // A recipient's inbound awards, grouped by the funding SUB-agency (NIH,
+    // HRSA, CMS…). Grouping by the top-tier "Awarding Agency" collapses every
+    // HHS sub-agency into a single "HHS" inflow, which misrepresents the funding
+    // picture (see #30); the sub-agency is the real funder. Awards with no
+    // sub-agency fall back to the top-tier department.
     async recipientEdges(name, years) {
         const key = 'R:' + name + '|' + years.join(',');
         if (this.awardCache.has(key)) return this.awardCache.get(key);
@@ -82,32 +89,39 @@ export class USASpendingDataManager {
                 award_type_codes: AWARD_TYPE_CODES,
                 time_period: this.timePeriod(years)
             },
-            fields: ['Award Amount', 'Recipient Name', 'Awarding Agency'],
+            fields: ['Award Amount', 'Recipient Name', 'Awarding Agency', 'Awarding Sub Agency'],
             limit: 100, sort: 'Award Amount', order: 'desc'
         });
-        const byAgency = new Map();
+        const byAgency = new Map(); // agency name -> { amount, tier }
         for (const r of (d.results || [])) {
-            const agency = r['Awarding Agency'];
+            const sub = r['Awarding Sub Agency'];
+            const agency = sub || r['Awarding Agency'];
+            const tier = sub ? 'subtier' : 'toptier';
             const amt = Number(r['Award Amount']) || 0;
             if (!agency || amt <= 0) continue;
-            byAgency.set(agency, (byAgency.get(agency) || 0) + amt);
+            const cur = byAgency.get(agency) || { amount: 0, tier };
+            cur.amount += amt;
+            byAgency.set(agency, cur);
         }
-        const edges = Array.from(byAgency, ([agency, amount]) => ({
-            source: this.agencyId(agency), sourceName: agency, sourceKind: 'agency',
-            target: this.recipientId(name), targetName: name, targetKind: 'recipient',
+        const edges = Array.from(byAgency, ([agency, { amount, tier }]) => ({
+            source: this.agencyId(agency), sourceName: agency, sourceKind: 'agency', sourceTier: tier,
+            target: this.recipientId(name), targetName: name, targetKind: 'recipient', targetTier: null,
             amount
         }));
         this.awardCache.set(key, edges);
         return edges;
     }
 
-    // An agency's top outbound awards, grouped by recipient.
-    async agencyEdges(name, years, fanout = 8) {
-        const key = 'A:' + name + '|' + years.join(',');
+    // An agency's top outbound awards, grouped by recipient. `tier` must match
+    // how the node was minted in recipientEdges ('subtier' for NIH/HRSA/…,
+    // 'toptier' for a bare department) — querying a sub-agency name against the
+    // 'toptier' filter matches nothing and silently drops the agency's fan-out.
+    async agencyEdges(name, years, fanout = 8, tier = 'toptier') {
+        const key = 'A:' + name + '|' + tier + '|' + years.join(',');
         if (this.awardCache.has(key)) return this.awardCache.get(key);
         const d = await this.post('/api/v2/search/spending_by_award/', {
             filters: {
-                agencies: [{ type: 'awarding', tier: 'toptier', name }],
+                agencies: [{ type: 'awarding', tier, name }],
                 award_type_codes: AWARD_TYPE_CODES,
                 time_period: this.timePeriod(years)
             },
@@ -123,8 +137,8 @@ export class USASpendingDataManager {
         }
         const top = Array.from(byRecipient).sort((a, b) => b[1] - a[1]).slice(0, fanout);
         const edges = top.map(([rcp, amount]) => ({
-            source: this.agencyId(name), sourceName: name, sourceKind: 'agency',
-            target: this.recipientId(rcp), targetName: rcp, targetKind: 'recipient',
+            source: this.agencyId(name), sourceName: name, sourceKind: 'agency', sourceTier: tier,
+            target: this.recipientId(rcp), targetName: rcp, targetKind: 'recipient', targetTier: null,
             amount
         }));
         this.awardCache.set(key, edges);
@@ -153,7 +167,7 @@ export class USASpendingDataManager {
                 try {
                     return node.kind === 'recipient'
                         ? await this.recipientEdges(node.name, years)
-                        : await this.agencyEdges(node.name, years, perAgencyFanout);
+                        : await this.agencyEdges(node.name, years, perAgencyFanout, node.tier || 'toptier');
                 } catch (e) {
                     console.warn('expand failed for', node.id, e);
                     return [];
@@ -164,15 +178,16 @@ export class USASpendingDataManager {
             for (let i = 0; i < expandable.length; i++) {
                 const node = expandable[i];
                 for (const e of batches[i]) {
-                    // Register both endpoints.
-                    for (const [id, name, kind] of [
-                        [e.source, e.sourceName, e.sourceKind],
-                        [e.target, e.targetName, e.targetKind]
+                    // Register both endpoints. `tier` rides along on agency nodes
+                    // so they expand against the right agencies-filter tier later.
+                    for (const [id, name, kind, tier] of [
+                        [e.source, e.sourceName, e.sourceKind, e.sourceTier],
+                        [e.target, e.targetName, e.targetKind, e.targetTier]
                     ]) {
-                        if (!meta.has(id)) meta.set(id, { name, kind, inflow: 0, outflow: 0 });
+                        if (!meta.has(id)) meta.set(id, { name, kind, tier, inflow: 0, outflow: 0 });
                         if (!connected.has(id)) {
                             connected.set(id, node.depth + 1);
-                            next.push({ id, name, kind, depth: node.depth + 1 });
+                            next.push({ id, name, kind, tier, depth: node.depth + 1 });
                         }
                     }
                     const k = e.source + '|' + e.target;
