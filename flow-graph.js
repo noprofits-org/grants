@@ -1,9 +1,8 @@
 // flow-graph.js
 // Design-matched renderer for the live grant-flow network, styled to the
-// NoProfits "ember-on-bone" system. Purpose-built for the three-pane app shell
-// (kept separate from the legacy network.js used by the static index.html).
+// NoProfits "ember-on-bone" system. Purpose-built for the three-pane app shell.
 //
-// Consumes the same {grants, charities, connected} shape usaspending.js emits.
+// Consumes the {grants, charities, connected} shape usaspending.js emits.
 // Roles are derived for federal data:
 //   focus  = the searched org (root)             -> brown / gold
 //   govt   = a federal agency (id starts "A:")   -> rust  (the taxpayer source)
