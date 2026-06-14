@@ -44,9 +44,9 @@ for (const q of QUERIES) {
     let nodes = 0;
     try {
         await page.waitForFunction(
-            () => document.querySelectorAll('#network .node').length > 0,
+            () => document.querySelectorAll('#network .gnode').length > 0,
             { timeout: 25000 });
-        nodes = await page.$$eval('#network .node', n => n.length);
+        nodes = await page.$$eval('#network .gnode', n => n.length);
     } catch { /* falls through to failure */ }
 
     const resolved = await page.$eval('#orgFilter', e => e.value).catch(() => '');
