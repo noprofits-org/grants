@@ -35,8 +35,15 @@ export class USASpendingDataManager {
     // The static app preloads everything; the live app has nothing to preload.
     async loadData() { return true; }
 
-    agencyId(name) { return 'A:' + name; }
-    recipientId(name) { return 'R:' + name; }
+    // Node ids key on a NORMALIZED name (case-folded, whitespace-collapsed) so
+    // the same entity under different spacing/casing — "FRED HUTCH " vs "Fred
+    // Hutch" — resolves to ONE node instead of fragmenting (#15). The raw name
+    // still rides on every edge's sourceName/targetName for display. A stable
+    // id (recipient UEI) would also disambiguate genuinely distinct same-named
+    // orgs, but that needs the root resolved to a UEI first — deferred.
+    normKey(name) { return (name || '').trim().toLowerCase().replace(/\s+/g, ' '); }
+    agencyId(name) { return 'A:' + this.normKey(name); }
+    recipientId(name) { return 'R:' + this.normKey(name); }
 
     timePeriod(years) {
         // years: array of fiscal years (e.g. [2024, 2025]). Federal FY starts Oct 1.
