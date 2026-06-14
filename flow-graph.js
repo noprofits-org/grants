@@ -180,11 +180,12 @@ export class FlowGraph {
             .attr('fill', d => this.fillFor(d))
             .attr('stroke', d => d.id === sel ? p.selStroke : 'transparent')
             .attr('stroke-width', d => d.id === sel ? 4 : 0);
+        const ringed = d => this.roleOf(d) === 'govt' || d.taxpayerFunded;
         this.nodeSel.select('circle.ring')
             .attr('r', d => d.r + 6)
-            .attr('stroke', d => this.roleOf(d) === 'govt' ? p.govt : 'transparent')
-            .attr('stroke-width', d => this.roleOf(d) === 'govt' ? 2 : 0)
-            .attr('stroke-dasharray', '4 3');
+            .attr('stroke', d => ringed(d) ? p.govt : 'transparent')
+            .attr('stroke-width', d => ringed(d) ? 2 : 0)
+            .attr('stroke-dasharray', d => this.roleOf(d) === 'govt' ? '0' : '4 3');
         this.nodeSel.select('text.nlabel').attr('fill', p.labelFill);
 
         this.linkSel
@@ -217,6 +218,13 @@ export class FlowGraph {
         this.paint();
         const n = id ? this.nodes.find(x => x.id === id) : null;
         this.onSelect(n);
+    }
+
+    // Flag nodes (by id) whose federal share of revenue is high enough to ring
+    // in rust. Called after async 990 enrichment; repaints in place.
+    setTaxpayerFlags(idSet) {
+        for (const n of this.nodes) n.taxpayerFunded = idSet.has(n.id);
+        if (this.nodeSel) this.paint();
     }
 
     applyLayout(mode) {
