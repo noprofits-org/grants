@@ -10,18 +10,17 @@
 // (the design's neutral "funder" charcoal isn't used — in federal data every
 // funder IS a government agency, so they read in rust instead.)
 
-const PALETTES = {
-    light: {
-        focus: '#362C17', govt: '#7A3320', grantee: '#C9BfA6', granteeStroke: '#A89B78',
-        edge: '#CFC8BA', edgeLabel: '#7C7E80', labelFill: '#16140F',
-        canvas: '#EFEADF', selStroke: '#362C17',
-    },
-    dark: {
-        focus: '#C9B48A', govt: '#C98A6E', grantee: '#6E6450', granteeStroke: '#857A63',
-        edge: '#3A352B', edgeLabel: '#A8A69C', labelFill: '#F1EDE3',
-        canvas: '#100F0C', selStroke: '#C9B48A',
-    },
+// Role color -> live.css design token. The renderer reads these from CSS so
+// there's ONE source of truth across the suite; resolved to concrete colors
+// here because SVG attributes (fill/stroke) can't take var() (#18).
+const ROLE_TOKENS = {
+    focus: 'accent', govt: 'alert', grantee: 'grantee', granteeStroke: 'grantee-stroke',
+    edge: 'edge', edgeLabel: 'edge-label', labelFill: 'fg',
+    canvas: 'canvas', selStroke: 'accent',
 };
+function cssToken(name) {
+    return getComputedStyle(document.documentElement).getPropertyValue('--' + name).trim();
+}
 
 export class FlowGraph {
     constructor(svgEl, { onSelect } = {}) {
@@ -48,7 +47,15 @@ export class FlowGraph {
         this.svg.on('click', () => this.select(null));
     }
 
-    pal() { return PALETTES[this.theme]; }
+    // Resolve the role palette from the current [data-theme]'s CSS tokens,
+    // cached until the theme changes (avoids a getComputedStyle per node).
+    pal() {
+        if (!this._pal) {
+            this._pal = {};
+            for (const role in ROLE_TOKENS) this._pal[role] = cssToken(ROLE_TOKENS[role]);
+        }
+        return this._pal;
+    }
 
     size() {
         const r = this.svg.node().getBoundingClientRect();
@@ -57,6 +64,7 @@ export class FlowGraph {
 
     setTheme(theme) {
         this.theme = theme;
+        this._pal = null;   // re-resolve tokens under the new [data-theme]
         if (this.nodes.length) { this.setupMarkers(); this.paint(); }
     }
 

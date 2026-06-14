@@ -5,6 +5,9 @@ import { ProPublica } from './propublica.js';
 const TAXPAYER_THRESHOLD = 0.05;   // federal grants / total revenue → rust ring + alert
 
 const $ = id => document.getElementById(id);
+// Resolve a live.css design token (#18) — keeps legend/inspector colors in sync
+// with the renderer and the stylesheet instead of duplicating hex literals.
+const cssVar = name => getComputedStyle(document.documentElement).getPropertyValue('--' + name).trim();
 // el() sets TEXT — safe for API-sourced strings (org names). elHTML() is for the
 // few spots that need literal markup interpolating only already-safe values
 // (numbers from abbr(), fixed labels) — never raw name fields.
@@ -73,13 +76,11 @@ class LiveApp {
     }
 
     paintLegend() {
-        // mirror the renderer's role palette so the legend swatches match the canvas
-        const p = this.theme === 'dark'
-            ? { focus: '#C9B48A', govt: '#C98A6E', grantee: '#6E6450' }
-            : { focus: '#362C17', govt: '#7A3320', grantee: '#C9BfA6' };
-        $('legFocus').style.background = p.focus;
-        $('legGovt').style.background = p.govt;
-        $('legGrantee').style.background = p.grantee;
+        // mirror the renderer's role palette from the live.css tokens (#18) so
+        // the legend swatches track the canvas under the current [data-theme]
+        $('legFocus').style.background = cssVar('accent');
+        $('legGovt').style.background = cssVar('alert');
+        $('legGrantee').style.background = cssVar('grantee');
     }
 
     onSearch(text) {
@@ -340,7 +341,7 @@ class LiveApp {
             for (const r of rows.sort((a, b) => b.grant_amt - a.grant_amt).slice(0, 8)) {
                 const otherId = title === 'Grants In' ? r.filer_ein : r.grant_ein;
                 const row = el('div', 'flow-row');
-                const dotColor = otherId.startsWith('A:') ? (this.theme === 'dark' ? '#C98A6E' : '#7A3320') : (this.theme === 'dark' ? '#6E6450' : '#C9BfA6');
+                const dotColor = cssVar(otherId.startsWith('A:') ? 'alert' : 'grantee');
                 const name = el('span', 'n');
                 const dot = el('span', 'dot');
                 dot.style.background = dotColor;
