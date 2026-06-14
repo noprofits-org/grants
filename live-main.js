@@ -2,7 +2,11 @@ import { USASpendingDataManager } from './usaspending.js';
 import { FlowGraph, abbr } from './flow-graph.js';
 
 const $ = id => document.getElementById(id);
-const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
+// el() sets TEXT — safe for API-sourced strings (org names). elHTML() is for the
+// few spots that need literal markup interpolating only already-safe values
+// (numbers from abbr(), fixed labels) — never raw name fields.
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+const elHTML = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
 
 class LiveApp {
     constructor() {
@@ -143,7 +147,10 @@ class LiveApp {
     fail(msg) {
         const insp = $('inspector');
         insp.innerHTML = '';
-        insp.appendChild(el('div', 'insp-empty', `<span style="color:var(--alert)">${msg}</span>`));
+        const div = el('div', 'insp-empty');
+        div.style.color = 'var(--alert)';
+        div.textContent = msg;
+        insp.appendChild(div);
     }
 
     updateChrome(data, root) {
@@ -201,12 +208,16 @@ class LiveApp {
         const group = (title, rows) => {
             if (!rows.length) return;
             const g = el('div', 'flow-group');
-            g.appendChild(el('div', 'gh', `<span class="t">${title}</span>`));
+            g.appendChild(elHTML('div', 'gh', `<span class="t">${title}</span>`));
             for (const r of rows.sort((a, b) => b.grant_amt - a.grant_amt).slice(0, 8)) {
                 const otherId = title === 'Grants In' ? r.filer_ein : r.grant_ein;
                 const row = el('div', 'flow-row');
                 const dotColor = otherId.startsWith('A:') ? (this.theme === 'dark' ? '#C98A6E' : '#7A3320') : (this.theme === 'dark' ? '#6E6450' : '#C9BfA6');
-                const name = el('span', 'n', `<span class="dot" style="background:${dotColor}"></span>${trunc(nameOf(otherId), 30)}`);
+                const name = el('span', 'n');
+                const dot = el('span', 'dot');
+                dot.style.background = dotColor;
+                name.appendChild(dot);
+                name.appendChild(document.createTextNode(trunc(nameOf(otherId), 30)));  // name via text node — no innerHTML
                 name.addEventListener('click', () => this.graph.select(otherId));
                 row.appendChild(name);
                 row.appendChild(el('span', 'a', abbr(r.grant_amt)));
