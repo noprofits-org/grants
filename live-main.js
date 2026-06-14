@@ -7,7 +7,8 @@ class LiveApp {
     constructor() {
         this.data = new USASpendingDataManager();
         this.viz = null;
-        this.root = null;        // { id, name, kind }
+        this.matches = [];       // current autocomplete candidates [{id,name,kind}]
+        this.picked = null;      // entity the user explicitly clicked, if any
         this.lastData = null;
         this.searchTimer = null;
     }
@@ -21,7 +22,7 @@ class LiveApp {
         $('matchingOrgs').addEventListener('change', e => {
             const opt = e.target.selectedOptions[0];
             if (opt) {
-                this.root = { id: opt.value, name: opt.dataset.name, kind: 'recipient' };
+                this.picked = { id: opt.value, name: opt.dataset.name, kind: 'recipient' };
                 $('orgFilter').value = opt.dataset.name;
             }
         });
@@ -33,9 +34,11 @@ class LiveApp {
     }
 
     onSearch(text) {
+        this.picked = null;  // a new search invalidates any prior explicit pick
         clearTimeout(this.searchTimer);
         this.searchTimer = setTimeout(async () => {
             const matches = await this.data.searchRecipients(text);
+            this.matches = matches;
             const sel = $('matchingOrgs');
             sel.innerHTML = '';
             for (const m of matches) {
@@ -43,10 +46,29 @@ class LiveApp {
                 o.value = m.id; o.textContent = m.name; o.dataset.name = m.name;
                 sel.appendChild(o);
             }
-            if (matches.length && !this.root) {
-                this.root = matches[0];
-            }
+            // The select is display:none by default — only show it when populated.
+            sel.style.display = matches.length ? 'block' : 'none';
         }, 300);
+    }
+
+    // USAspending recipient-name matching is fuzzy: a typed query surfaces several
+    // legal-name variants and often only one actually has grant awards (e.g.
+    // "AMERICAN NATIONAL RED CROSS", not "AMERICAN RED CROSS, THE"). Try the
+    // explicit pick first, then each candidate, and root on the first with data.
+    async resolveRoot(text, years) {
+        const tried = new Set();
+        const candidates = [];
+        if (this.picked) candidates.push(this.picked);
+        candidates.push(...this.matches);
+        if (candidates.length === 0) candidates.push(...await this.data.searchRecipients(text));
+
+        for (const c of candidates) {
+            if (tried.has(c.id)) continue;
+            tried.add(c.id);
+            const edges = await this.data.recipientEdges(c.name, years); // cached; reused by buildGraph
+            if (edges.length) return c;
+        }
+        return null;
     }
 
     filters() {
@@ -60,16 +82,22 @@ class LiveApp {
     }
 
     async render() {
-        if (!this.root) { this.flash('Type an organization name and pick a match first.'); return; }
-        this.loading(true, `Fetching live federal awards for ${this.root.name}…`);
+        const text = $('orgFilter').value.trim();
+        if (!text) { this.flash('Type an organization name, then press Visualize.'); return; }
+        const filters = this.filters();
+        this.loading(true, `Finding federal grant awards for “${text}”…`);
         try {
-            const data = await this.data.buildGraph(this.root, this.filters());
-            this.lastData = data;
-            if (!data.grants.length) {
+            const root = await this.resolveRoot(text, filters.years);
+            if (!root) {
                 this.loading(false);
-                this.flash('No federal awards found for that organization / year range.');
+                this.flash(`No federal grant awards found for any “${text}” match in the selected years. Try another name or add more fiscal years.`);
                 return;
             }
+            $('orgFilter').value = root.name;        // show which entity actually resolved
+            $('matchingOrgs').style.display = 'none';
+            this.loading(true, `Building money-flow graph for ${root.name}…`);
+            const data = await this.data.buildGraph(root, filters);
+            this.lastData = data;
             this.viz.update(data, data.charities, $('colorScheme').value);
             this.stats(data.stats);
             this.loading(false);
@@ -112,7 +140,7 @@ class LiveApp {
             .text('Live data from USAspending.gov — agencies → recipients');
         g.append('text').attr('x', cx).attr('y', cy + 40).attr('text-anchor', 'middle')
             .attr('fill', 'white').attr('font-size', '15px')
-            .text('Search an organization (e.g. "American Red Cross"), pick a match, press Visualize');
+            .text('Type an organization (e.g. "American Red Cross") and press Visualize ▶');
     }
 }
 
