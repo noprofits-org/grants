@@ -132,6 +132,30 @@ export class USASpendingDataManager {
         return edges;
     }
 
+    // Total federal grant dollars to a recipient in a SINGLE federal fiscal
+    // year. Used to normalize the taxpayer ratio: the graph sums inflow across
+    // all selected years, but a 990's revenue is one year, so dividing the two
+    // can exceed 100%. Restricting the numerator to the 990's fiscal year makes
+    // it apples-to-apples (#28). (Federal FY ~ the 990 tax-period year; an
+    // approximation, since a filer's own fiscal year may differ.)
+    async recipientYearInflow(name, year) {
+        const key = 'RY:' + name + '|' + year;
+        if (this.awardCache.has(key)) return this.awardCache.get(key);
+        const d = await this.post('/api/v2/search/spending_by_award/', {
+            filters: {
+                recipient_search_text: [name],
+                award_type_codes: AWARD_TYPE_CODES,
+                time_period: this.timePeriod([year])
+            },
+            fields: ['Award Amount', 'Recipient Name'],
+            limit: 100, sort: 'Award Amount', order: 'desc'
+        });
+        let total = 0;
+        for (const r of (d.results || [])) total += Number(r['Award Amount']) || 0;
+        this.awardCache.set(key, total);
+        return total;
+    }
+
     // An agency's top outbound awards, grouped by recipient. `tier` must match
     // how the node was minted in recipientEdges ('subtier' for NIH/HRSA/…,
     // 'toptier' for a bare department) — querying a sub-agency name against the

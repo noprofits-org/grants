@@ -21,6 +21,8 @@ class LiveApp {
         this.lastGraph = null;    // {grants, charities, connected}
         this.focusId = null;
         this.profiles = new Map();// nodeId -> 990 profile | null (fetched) | undefined (not yet)
+        this.yearInflows = new Map();// nodeId -> {year, inflow} | null (in-flight) — for the FY-normalized ratio (#28)
+        this.years = [2024, 2025]; // fiscal years backing the current graph
         this.searchTimer = null;
         this.searchSeq = 0;       // monotonic; drops stale autocomplete responses (#12)
         this.theme = 'light';
@@ -141,6 +143,7 @@ class LiveApp {
         const text = $('orgFilter').value.trim();
         if (!text) return;
         const filters = this.filters();
+        this.years = filters.years;   // back the FY-normalized taxpayer ratio (#28)
         $('matchList').hidden = true;
         $('goBtn').disabled = true;
         $('goBtn').textContent = 'Loading…';
@@ -163,6 +166,7 @@ class LiveApp {
             this.graph.render(data, root.id);
             this.updateChrome(data, root);
             this.profiles = new Map();
+            this.yearInflows = new Map();
             this.enrichAll(data);   // background: 990 data → rings + inspector
 
         } catch (e) {
@@ -222,6 +226,10 @@ class LiveApp {
         const recipients = data.charities.filter(c => c.filer_ein.startsWith('R:'));
         await Promise.all(recipients.map(c => this.enrichOne(c.filer_ein, c.filer_name.replace(/^🏛\s*/, ''), store)));
         if (this.lastGraph !== data) return;   // a newer query superseded this one
+        // The graph RING uses the broad all-years signal — a coarse "this org
+        // leans on federal money" flag. The inspector shows the precise figure,
+        // normalized to the 990's fiscal year (#28). The two intentionally
+        // differ: one is a binary highlight, the other a stated percentage.
         const flagged = new Set();
         for (const c of recipients) {
             const p = this.profiles.get(c.filer_ein);
@@ -258,7 +266,30 @@ class LiveApp {
         if (!isAgency && profile === undefined) {
             this.enrichOne(n.id, n.name).then(() => { if (this.graph.selectedId === n.id) this.renderInspector(n); });
         }
-        const share = (profile && profile.revenue) ? inTotal / profile.revenue : null;
+        // Taxpayer ratio normalized to the 990's fiscal year (#28). The graph
+        // sums federal inflow across ALL selected years, but a 990's revenue is
+        // one year — dividing the two can exceed 100% and read as a data error.
+        // Compare only the 990 year's federal inflow to that year's revenue, and
+        // only when the 990 year is within the selected fiscal years (so it
+        // stays consistent with what's on screen). Fetched lazily per inspected
+        // node, then this inspector repaints.
+        let share = null, yearInflow = null, ratioYear = null;
+        if (!isAgency && profile && profile.revenue && profile.year != null && this.years.includes(profile.year)) {
+            ratioYear = profile.year;
+            const entry = this.yearInflows.get(n.id);
+            if (entry && entry.year === ratioYear) {
+                yearInflow = entry.inflow;
+                share = yearInflow / profile.revenue;
+            } else if (entry === undefined) {
+                this.yearInflows.set(n.id, null);   // mark in-flight; don't refetch
+                this.data.recipientYearInflow(n.name, ratioYear)
+                    .then(inflow => {
+                        this.yearInflows.set(n.id, { year: ratioYear, inflow });
+                        if (this.graph.selectedId === n.id) this.renderInspector(n);
+                    })
+                    .catch(() => this.yearInflows.set(n.id, { year: ratioYear, inflow: 0 }));
+            }
+        }
 
         // header
         const head = el('div', 'insp-head');
@@ -283,7 +314,7 @@ class LiveApp {
         } else if (share != null && share > TAXPAYER_THRESHOLD) {
             insp.appendChild(elHTML('div', 'alert-box',
                 `<div class="ah"><span class="sq"></span><span class="t">Taxpayer impact</span></div>
-                <div class="body">${(share * 100).toFixed(1)}% of total revenue is federal grant money (${abbr(inTotal)} of ${abbr(profile.revenue)}).</div>`));
+                <div class="body">${(share * 100).toFixed(0)}% of total revenue is federal grant money (FY${ratioYear}: ${abbr(yearInflow)} of ${abbr(profile.revenue)}).</div>`));
         }
 
         // stats (USAspending + IRS-990 when available)
