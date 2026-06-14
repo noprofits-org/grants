@@ -224,14 +224,19 @@ export class NetworkVisualization {
         const defs = this.svg.append("defs");
         const colors = ['#ef4444', '#f97316', '#84cc16', '#06b6d4', '#8b5cf6', '#ec4899'];
 
+        // markerUnits="userSpaceOnUse" keeps arrowheads a FIXED pixel size instead
+        // of scaling with stroke-width. Without it, a thick (high-dollar) link
+        // blows the arrowhead up to hundreds of px. refX≈10 puts the tip at the
+        // line end (the link path already stops at the target node's edge).
         colors.forEach((color, i) => {
             defs.append("marker")
                 .attr("id", `arrow-${i}`)
                 .attr("viewBox", "0 -5 10 10")
-                .attr("refX", 25)
+                .attr("refX", 10)
                 .attr("refY", 0)
-                .attr("markerWidth", 8)
-                .attr("markerHeight", 8)
+                .attr("markerUnits", "userSpaceOnUse")
+                .attr("markerWidth", 13)
+                .attr("markerHeight", 13)
                 .attr("orient", "auto")
                 .append("path")
                 .attr("d", "M0,-5L10,0L0,5")
@@ -241,10 +246,11 @@ export class NetworkVisualization {
         defs.append("marker")
             .attr("id", "arrow-self")
             .attr("viewBox", "0 -5 10 10")
-            .attr("refX", 25)
+            .attr("refX", 10)
             .attr("refY", 0)
-            .attr("markerWidth", 8)
-            .attr("markerHeight", 8)
+            .attr("markerUnits", "userSpaceOnUse")
+            .attr("markerWidth", 13)
+            .attr("markerHeight", 13)
             .attr("orient", "auto")
             .append("path")
             .attr("d", "M0,-5L10,0L0,5")
@@ -409,7 +415,7 @@ export class NetworkVisualization {
             .join("path")
             .attr("class", "link")
             .attr("stroke", d => d.isSelf ? "#94a3b8" : this.getColorForDepth(nodes.find(n => n.id === d.source.id).depth))
-            .attr("stroke-width", d => d.isSelf ? 3 : Math.max(1, Math.sqrt(d.value) / 8000)) // Thicker for self-loops
+            .attr("stroke-width", d => d.isSelf ? 3 : this.calculateLinkWidth(d.value)) // log-normalized 1–10px (raw sqrt/8000 blew up on $B-scale awards)
             .attr("fill", "none")
             .attr("marker-end", d => d.isSelf ? "url(#arrow-self)" : `url(#arrow-${nodes.find(n => n.id === d.source.id).depth})`);
     
