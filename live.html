@@ -1,79 +1,125 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="light">
 
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Federal Money Flow — Live</title>
+    <title>NoProfits Grants — Grant Flow Network</title>
     <link rel="icon" href="favicon.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Saira+Condensed:wght@600;700;800;900&family=Barlow+Condensed:wght@600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="live.css">
 </head>
 
 <body>
-    <div id="loadingOverlay" class="loading-overlay">
-        <div class="loading-content">
-            <div class="spinner"></div>
-            <div class="loading-text">Loading…</div>
+    <!-- MASTHEAD -->
+    <header class="masthead">
+        <div class="brand">
+            <span class="glyph"></span>
+            <span class="word">NoProfits<span class="sub">Grants</span></span>
+            <span class="tag">Grant Flow Network</span>
         </div>
+        <div class="mast-right">
+            <div class="impact" id="impactPill" style="visibility:hidden;">
+                <span class="dot"></span>
+                <span class="k">Taxpayer impact</span>
+                <span class="v" id="impactTotal">—</span>
+            </div>
+            <span class="src">USAspending.gov · live</span>
+            <button class="theme-btn" id="themeToggle" title="Toggle light / dark">◐</button>
+        </div>
+    </header>
+
+    <!-- WORKSPACE -->
+    <div class="workspace">
+
+        <!-- CONTROL RAIL -->
+        <aside class="rail">
+            <div class="section">
+                <div class="hdr"><span class="sq"></span><span class="t">Focus Organization</span></div>
+                <div class="searchbox">
+                    <span class="ic">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.5" y2="16.5"></line></svg>
+                    </span>
+                    <input id="orgFilter" placeholder='e.g. "American Red Cross"' aria-label="Focus organization">
+                </div>
+                <ul class="match-list" id="matchList" hidden></ul>
+                <button class="btn-accent" id="goBtn" style="margin-top:10px;">Visualize ▶</button>
+            </div>
+
+            <div class="section">
+                <div class="row-between">
+                    <span class="lbl">Connection depth</span>
+                    <span class="val" id="depthVal">2</span>
+                </div>
+                <input type="range" id="depth" min="1" max="4" value="2">
+                <div class="range-ends"><span>1</span><span>2</span><span>3</span><span>4</span></div>
+                <div class="row-between" style="margin-top:16px;">
+                    <span class="lbl">Max entities</span>
+                    <span class="val" id="maxOrgsVal">14</span>
+                </div>
+                <input type="range" id="maxOrgs" min="6" max="40" value="14" step="1">
+                <div class="range-ends"><span>6</span><span>40</span></div>
+            </div>
+
+            <div class="section">
+                <div class="lbl" style="margin-bottom:10px;">Fiscal Years</div>
+                <div class="years" id="yearCheckboxes"></div>
+            </div>
+
+            <div class="section">
+                <div class="lbl" style="margin-bottom:10px;">Layout</div>
+                <div class="seg" id="layoutSeg">
+                    <button data-mode="hierarchy" class="on">Hierarchy</button>
+                    <button data-mode="force">Force</button>
+                </div>
+            </div>
+
+            <div class="section" style="margin-top:auto; border-bottom:none;">
+                <div class="lbl" style="margin-bottom:12px;">Legend</div>
+                <div class="legend">
+                    <div class="item"><span class="swatch" id="legFocus"></span>Focus organization</div>
+                    <div class="item"><span class="swatch" id="legGovt"></span>Federal agency (source)</div>
+                    <div class="item"><span class="swatch" id="legGrantee"></span>Recipient</div>
+                    <div class="item"><span class="ringsw"></span>Government source ring</div>
+                    <div class="item"><span style="width:16px;height:7px;border-radius:4px;background:var(--fg-faint);"></span>Node size = money flow</div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- CANVAS -->
+        <section class="canvas">
+            <div class="toolbar">
+                <div style="display:flex; align-items:center; gap:9px;">
+                    <span class="lbl" style="color:var(--fg-faint);">Focus</span>
+                    <span class="focus-chip" id="focusChip">—</span>
+                </div>
+                <div class="tool-btns">
+                    <button class="tb mono" id="zoomOut">−</button>
+                    <button class="tb mono" id="zoomIn">+</button>
+                    <button class="tb" id="fitBtn">Fit</button>
+                </div>
+            </div>
+            <svg id="network"></svg>
+            <div class="canvas-hint" id="canvasHint">
+                <h1>Grant Flow Network</h1>
+                <p>Type an organization (e.g. “American Red Cross”) and press Visualize to trace where federal grant dollars flow — live from USAspending.gov.</p>
+            </div>
+            <div class="statusbar">
+                <span><b id="stOrgs">0</b> ORGS</span>
+                <span><b id="stFlows">0</b> GRANT RELATIONSHIPS</span>
+                <span>TOTAL FLOW <b id="stTotal">—</b></span>
+                <span class="impact-count" id="stImpact"></span>
+            </div>
+        </section>
+
+        <!-- INSPECTOR -->
+        <aside class="inspector" id="inspector">
+            <div class="insp-empty">Select a node to inspect an organization.</div>
+        </aside>
+
     </div>
-
-    <div id="controls">
-        <button id="themeToggle" class="theme-toggle" title="Toggle dark/light mode">
-            <span class="theme-icon"></span>
-        </button>
-        <div class="control-group">
-            <label>Organization (recipient):</label>
-            <input type="text" id="orgFilter" placeholder='e.g. "American Red Cross"' aria-label="Organization">
-            <select id="matchingOrgs" size="4"></select>
-        </div>
-        <div id="yearFilterContainer">
-            <label>Fiscal Years:</label>
-            <div id="yearCheckboxes"></div>
-        </div>
-        <div class="control-group">
-            <label>Connection Depth:</label>
-            <input type="number" id="depth" value="2" min="1" max="4">
-        </div>
-        <div class="control-group">
-            <label>Max Entities to Show:</label>
-            <input type="number" id="maxOrgs" value="14">
-        </div>
-        <div class="control-group">
-            <label>Color Nodes By:</label>
-            <select id="colorScheme">
-                <option value="depth">Connection Depth</option>
-                <option value="revenue">Flow Volume</option>
-                <option value="govtFunding">Federal Share</option>
-                <option value="grantAmount">Total Awarded</option>
-            </select>
-        </div>
-        <div class="control-group">
-            <button id="goBtn" class="preset-btn" style="width:100%;padding:8px;">Visualize ▶</button>
-            <button id="layoutBtn" class="preset-btn" style="width:100%;padding:8px;margin-top:6px;" disabled>De-tangle ⇄</button>
-        </div>
-        <div id="stats"></div>
-    </div>
-
-    <div id="tooltip" class="tooltip"></div>
-
-    <div class="legend">
-        <div class="legend-section">
-            <strong>Node Colors by Depth:</strong><br>
-            <span style="color: #ef4444">●</span> Root (Level 0)<br>
-            <span style="color: #f97316">●</span> Level 1<br>
-            <span style="color: #84cc16">●</span> Level 2<br>
-            <span style="color: #06b6d4">●</span> Level 3<br>
-        </div>
-        <div>
-            <strong>Size &amp; Connections:</strong><br>
-            🏛 = federal agency · others = recipients<br>
-            Circle Size: total money flow<br>
-            Line Thickness: award amount<br>
-            Arrows: agency → recipient
-        </div>
-    </div>
-
-    <svg id="network"></svg>
 
     <script src="https://d3js.org/d3.v7.min.js"></script>
     <script type="module" src="./live-main.js"></script>
