@@ -16,10 +16,24 @@ export class ProPublica {
         this.orgCache = new Map();   // ein  -> profile | null
     }
 
-    async proxied(target) {
-        const res = await fetch(`${PROXY}?url=${encodeURIComponent(target)}`);
-        if (!res.ok) throw new Error('proxy ' + res.status);
-        return res.json();
+    // enrichAll fires ~1-2 dozen of these concurrently per Visualize, so a
+    // single hung proxy connection used to strand that node's ring 'loading'
+    // forever and waste the proxy budget (#22). Cap each call with an
+    // AbortController; a timeout throws like any other failure, which the
+    // callers treat as a transient (best-effort null, not cached — see #24).
+    async proxied(target, { timeout = 10000 } = {}) {
+        const ctl = new AbortController();
+        const t = setTimeout(() => ctl.abort(), timeout);
+        try {
+            const res = await fetch(`${PROXY}?url=${encodeURIComponent(target)}`, { signal: ctl.signal });
+            if (!res.ok) throw new Error('proxy ' + res.status);
+            return await res.json();
+        } catch (e) {
+            if (e.name === 'AbortError') throw new Error('proxy timeout');
+            throw e;
+        } finally {
+            clearTimeout(t);
+        }
     }
 
     // Resolve an org name to its best EIN match (or null). Guards against loose

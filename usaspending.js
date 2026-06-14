@@ -45,14 +45,27 @@ export class USASpendingDataManager {
         return [{ start_date: `${min - 1}-10-01`, end_date: `${max}-09-30` }];
     }
 
-    async post(path, body) {
-        const res = await fetch(API + path, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body)
-        });
-        if (!res.ok) throw new Error(`USAspending ${path} -> ${res.status}`);
-        return res.json();
+    // A hung request must not leave the loading overlay spinning forever (#13):
+    // an AbortController caps every call, and a timeout surfaces as a normal
+    // error the caller can flash() / skip-to-next-candidate on.
+    async post(path, body, { timeout = 15000 } = {}) {
+        const ctl = new AbortController();
+        const t = setTimeout(() => ctl.abort(), timeout);
+        try {
+            const res = await fetch(API + path, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+                signal: ctl.signal
+            });
+            if (!res.ok) throw new Error(`USAspending ${path} -> ${res.status}`);
+            return await res.json();
+        } catch (e) {
+            if (e.name === 'AbortError') throw new Error(`USAspending request timed out (${path})`);
+            throw e;
+        } finally {
+            clearTimeout(t);
+        }
     }
 
     // --- search / resolve --------------------------------------------------
