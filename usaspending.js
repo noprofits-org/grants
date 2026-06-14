@@ -248,22 +248,53 @@ export class USASpendingDataManager {
             if (meta.has(tgt)) meta.get(tgt).inflow += amount;
         }
 
-        // Trim to maxOrgs by total volume, always keeping the root.
+        // Trim to maxOrgs, always keeping the root, ranking by PROXIMITY first
+        // then dollar volume (#37). Volume-only ranking dropped the root's own
+        // direct funders (e.g. HRSA at depth 1) in favour of billion-dollar
+        // nodes several hops away, and trimmed small connector nodes — which,
+        // with the both-endpoints-survive edge rule, stranded whole far clusters
+        // (a floating CMS->states blob) with no path back to the root. Keeping
+        // shallower nodes first means a direct funder is never cut for a distant
+        // one, and the keep-set stays a prefix-by-depth of the BFS.
         let keep = new Set(meta.keys());
         if (keep.size > maxOrgs) {
             const ranked = Array.from(meta.entries())
                 .filter(([id]) => id !== root.id)
-                .sort((a, b) => (b[1].inflow + b[1].outflow) - (a[1].inflow + a[1].outflow))
+                .sort((a, b) => {
+                    const da = connected.get(a[0]) ?? Infinity, db = connected.get(b[0]) ?? Infinity;
+                    return da - db || (b[1].inflow + b[1].outflow) - (a[1].inflow + a[1].outflow);
+                })
                 .slice(0, Math.max(0, maxOrgs - 1))
                 .map(([id]) => id);
             keep = new Set([root.id, ...ranked]);
         }
 
-        // Emit the engine's shape.
-        const grants = [];
+        // Edges among the kept nodes.
+        const keptEdges = [];
         for (const [k, amount] of edgeAgg) {
             const [src, tgt] = k.split('|');
-            if (keep.has(src) && keep.has(tgt)) {
+            if (keep.has(src) && keep.has(tgt)) keptEdges.push({ src, tgt, amount });
+        }
+
+        // Prune to the root's connected component so no disconnected cluster is
+        // ever rendered (#37). Undirected walk — a recipient root reaches its
+        // funder agencies by traversing edges backward.
+        const adj = new Map();
+        for (const id of keep) adj.set(id, []);
+        for (const { src, tgt } of keptEdges) { adj.get(src).push(tgt); adj.get(tgt).push(src); }
+        const reachable = new Set([root.id]);
+        const queue = [root.id];
+        while (queue.length) {
+            for (const nb of (adj.get(queue.shift()) || [])) {
+                if (!reachable.has(nb)) { reachable.add(nb); queue.push(nb); }
+            }
+        }
+        keep = reachable;
+
+        // Emit the engine's shape (edges within the surviving component).
+        const grants = [];
+        for (const { src, tgt, amount } of keptEdges) {
+            if (reachable.has(src) && reachable.has(tgt)) {
                 grants.push({ filer_ein: src, grant_ein: tgt, grant_amt: amount, tax_year: Math.max(...years) });
             }
         }
