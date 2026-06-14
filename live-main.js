@@ -22,6 +22,7 @@ class LiveApp {
         this.focusId = null;
         this.profiles = new Map();// nodeId -> 990 profile | null (fetched) | undefined (not yet)
         this.searchTimer = null;
+        this.searchSeq = 0;       // monotonic; drops stale autocomplete responses (#12)
         this.theme = 'light';
     }
 
@@ -82,8 +83,12 @@ class LiveApp {
     onSearch(text) {
         this.picked = null;
         clearTimeout(this.searchTimer);
+        const seq = ++this.searchSeq;
         this.searchTimer = setTimeout(async () => {
             const matches = await this.data.searchRecipients(text);
+            // A slower response for an earlier keystroke must not overwrite the
+            // matches for a newer one (#12).
+            if (seq !== this.searchSeq) return;
             this.matches = matches;
             const list = $('matchList');
             list.innerHTML = '';
@@ -120,8 +125,14 @@ class LiveApp {
         for (const c of candidates) {
             if (tried.has(c.id)) continue;
             tried.add(c.id);
-            const edges = await this.data.recipientEdges(c.name, years);
-            if (edges.length) return { root: c, picked: null };
+            try {
+                const edges = await this.data.recipientEdges(c.name, years);
+                if (edges.length) return { root: c, picked: null };
+            } catch (e) {
+                // A transient failure/timeout on one candidate shouldn't abort an
+                // otherwise-resolvable query — try the next match (#13).
+                console.warn('candidate failed, trying next', c.name, e);
+            }
         }
         return { root: null, picked: null };
     }
@@ -190,19 +201,26 @@ class LiveApp {
     }
 
     // Fetch 990 data for one recipient node (cached). Agencies are skipped.
-    async enrichOne(id, name) {
-        if (this.profiles.has(id)) return this.profiles.get(id);
-        if (id.startsWith('A:')) { this.profiles.set(id, null); return null; }
+    // Writes into `store` (defaults to the current profiles map) so a stale
+    // background pass can't write into a newer query's map — see enrichAll.
+    async enrichOne(id, name, store = this.profiles) {
+        if (store.has(id)) return store.get(id);
+        if (id.startsWith('A:')) { store.set(id, null); return null; }
         let profile = null;
         try { profile = await this.pp.enrich(name); } catch { /* best-effort */ }
-        this.profiles.set(id, profile || null);
-        return this.profiles.get(id);
+        store.set(id, profile || null);
+        return store.get(id);
     }
 
     // Background pass over all recipient nodes → light up taxpayer rings.
     async enrichAll(data) {
+        // Pin the profiles map this pass writes into. render() installs a fresh
+        // map per query; if a newer query supersedes this one mid-flight, our
+        // slow resolvers write into this now-orphaned map instead of the live
+        // one (#27). In-flight fetches are bounded by the proxied() timeout (#22).
+        const store = this.profiles;
         const recipients = data.charities.filter(c => c.filer_ein.startsWith('R:'));
-        await Promise.all(recipients.map(c => this.enrichOne(c.filer_ein, c.filer_name.replace(/^🏛\s*/, ''))));
+        await Promise.all(recipients.map(c => this.enrichOne(c.filer_ein, c.filer_name.replace(/^🏛\s*/, ''), store)));
         if (this.lastGraph !== data) return;   // a newer query superseded this one
         const flagged = new Set();
         for (const c of recipients) {
