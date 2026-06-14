@@ -105,19 +105,25 @@ class LiveApp {
         return { depth: +$('depth').value, maxOrgs: +$('maxOrgs').value, years: years.length ? years : [2024, 2025], perAgencyFanout: 8 };
     }
 
+    // Returns { root, picked }. An explicit dropdown pick is HONORED EXACTLY —
+    // never substituted for a sibling — so the org you select is the org that
+    // renders. Only the type-and-Visualize path (no pick) auto-resolves to the
+    // first candidate that actually has grant data.
     async resolveRoot(text, years) {
+        if (this.picked) {
+            const edges = await this.data.recipientEdges(this.picked.name, years);
+            return { root: edges.length ? this.picked : null, picked: this.picked };
+        }
         const tried = new Set();
-        const candidates = [];
-        if (this.picked) candidates.push(this.picked);
-        candidates.push(...this.matches);
+        const candidates = [...this.matches];
         if (!candidates.length) candidates.push(...await this.data.searchRecipients(text));
         for (const c of candidates) {
             if (tried.has(c.id)) continue;
             tried.add(c.id);
             const edges = await this.data.recipientEdges(c.name, years);
-            if (edges.length) return c;
+            if (edges.length) return { root: c, picked: null };
         }
-        return null;
+        return { root: null, picked: null };
     }
 
     async render() {
@@ -128,8 +134,13 @@ class LiveApp {
         $('goBtn').disabled = true;
         $('goBtn').textContent = 'Loading…';
         try {
-            const root = await this.resolveRoot(text, filters.years);
-            if (!root) { this.fail(`No federal grant awards for any “${text}” match.`); return; }
+            const { root, picked } = await this.resolveRoot(text, filters.years);
+            if (!root) {
+                this.fail(picked
+                    ? `“${picked.name}” has no federal grant awards in the selected years. Pick another match or add fiscal years.`
+                    : `No federal grant awards for any “${text}” match.`);
+                return;
+            }
             $('orgFilter').value = root.name;
             const data = await this.data.buildGraph(root, filters);
             this.lastGraph = data;
