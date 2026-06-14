@@ -711,14 +711,10 @@ export class NetworkVisualization {
         return simulation;
     }
 
-    createLinks(grants) {
-        return grants.map(grant => ({
-            source: grant.filer_ein,
-            target: grant.grant_ein,
-            value: parseFloat(grant.grant_amt),
-            isSelf: grant.filer_ein === grant.grant_ein
-        }));
-    }
+    // NOTE: a duplicate createLinks() previously lived here and shadowed the
+    // guarded version above (the one with the NaN check + missing-endpoint
+    // filter). JS keeps the last definition, so the unsafe one was winning.
+    // Removed so the guarded createLinks() near the top of the class is active.
 
     destroy() {
         if (this.simulation) {

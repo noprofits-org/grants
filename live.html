@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Federal Money Flow — Live</title>
+    <link rel="icon" href="favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+    <div id="loadingOverlay" class="loading-overlay">
+        <div class="loading-content">
+            <div class="spinner"></div>
+            <div class="loading-text">Loading…</div>
+        </div>
+    </div>
+
+    <div id="controls">
+        <button id="themeToggle" class="theme-toggle" title="Toggle dark/light mode">
+            <span class="theme-icon"></span>
+        </button>
+        <div class="control-group">
+            <label>Organization (recipient):</label>
+            <input type="text" id="orgFilter" placeholder='e.g. "American Red Cross"' aria-label="Organization">
+            <select id="matchingOrgs" size="4"></select>
+        </div>
+        <div id="yearFilterContainer">
+            <label>Fiscal Years:</label>
+            <div id="yearCheckboxes"></div>
+        </div>
+        <div class="control-group">
+            <label>Connection Depth:</label>
+            <input type="number" id="depth" value="2" min="1" max="4">
+        </div>
+        <div class="control-group">
+            <label>Max Entities to Show:</label>
+            <input type="number" id="maxOrgs" value="14">
+        </div>
+        <div class="control-group">
+            <label>Color Nodes By:</label>
+            <select id="colorScheme">
+                <option value="depth">Connection Depth</option>
+                <option value="revenue">Flow Volume</option>
+                <option value="govtFunding">Federal Share</option>
+                <option value="grantAmount">Total Awarded</option>
+            </select>
+        </div>
+        <div class="control-group">
+            <button id="goBtn" class="preset-btn" style="width:100%;padding:8px;">Visualize ▶</button>
+        </div>
+        <div id="stats"></div>
+    </div>
+
+    <div id="tooltip" class="tooltip"></div>
+
+    <div class="legend">
+        <div class="legend-section">
+            <strong>Node Colors by Depth:</strong><br>
+            <span style="color: #ef4444">●</span> Root (Level 0)<br>
+            <span style="color: #f97316">●</span> Level 1<br>
+            <span style="color: #84cc16">●</span> Level 2<br>
+            <span style="color: #06b6d4">●</span> Level 3<br>
+        </div>
+        <div>
+            <strong>Size &amp; Connections:</strong><br>
+            🏛 = federal agency · others = recipients<br>
+            Circle Size: total money flow<br>
+            Line Thickness: award amount<br>
+            Arrows: agency → recipient
+        </div>
+    </div>
+
+    <svg id="network"></svg>
+
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script type="module" src="./live-main.js"></script>
+</body>
+
+</html>
