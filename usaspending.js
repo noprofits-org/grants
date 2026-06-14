@@ -1,10 +1,10 @@
 // usaspending.js
 // Live data adapter for the flow-graph engine.
 //
-// The visualization engine (network.js) is data-shape agnostic: it renders any
-// directed, weighted, entity->entity flow graph. This adapter pulls that graph
-// LIVE from USAspending.gov (federal grants + contracts, no API key) and emits
-// the exact { grants, charities, connected } shape network.js already consumes.
+// The visualization engine (flow-graph.js) is data-shape agnostic: it renders
+// any directed, weighted, entity->entity flow graph. This adapter pulls that
+// graph LIVE from USAspending.gov (federal grants + contracts, no API key) and
+// emits the { grants, charities, connected } shape flow-graph.js consumes.
 //
 // Node id scheme:
 //   agency    -> "A:<Awarding Sub Agency>"  (the real funder: NIH, HRSA, CMS…,
