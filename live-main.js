@@ -1,5 +1,8 @@
 import { USASpendingDataManager } from './usaspending.js';
 import { FlowGraph, abbr } from './flow-graph.js';
+import { ProPublica } from './propublica.js';
+
+const TAXPAYER_THRESHOLD = 0.05;   // federal grants / total revenue → rust ring + alert
 
 const $ = id => document.getElementById(id);
 // el() sets TEXT — safe for API-sourced strings (org names). elHTML() is for the
@@ -11,11 +14,13 @@ const elHTML = (tag, cls, html) => { const e = document.createElement(tag); if (
 class LiveApp {
     constructor() {
         this.data = new USASpendingDataManager();
+        this.pp = new ProPublica();
         this.graph = null;        // FlowGraph
         this.matches = [];
         this.picked = null;
         this.lastGraph = null;    // {grants, charities, connected}
         this.focusId = null;
+        this.profiles = new Map();// nodeId -> 990 profile | null (fetched) | undefined (not yet)
         this.searchTimer = null;
         this.theme = 'light';
     }
@@ -135,6 +140,9 @@ class LiveApp {
             this.graph.layoutMode = mode;
             this.graph.render(data, root.id);
             this.updateChrome(data, root);
+            this.profiles = new Map();
+            this.enrichAll(data);   // background: 990 data → rings + inspector
+
         } catch (e) {
             console.error(e);
             this.fail('Live fetch failed: ' + e.message);
@@ -165,6 +173,42 @@ class LiveApp {
         $('impactPill').style.visibility = 'visible';
     }
 
+    // Federal grant dollars this node receives within the current view.
+    federalInflow(id) {
+        return this.lastGraph.grants.filter(g => g.grant_ein === id).reduce((s, g) => s + g.grant_amt, 0);
+    }
+
+    // Fetch 990 data for one recipient node (cached). Agencies are skipped.
+    async enrichOne(id, name) {
+        if (this.profiles.has(id)) return this.profiles.get(id);
+        if (id.startsWith('A:')) { this.profiles.set(id, null); return null; }
+        let profile = null;
+        try { profile = await this.pp.enrich(name); } catch { /* best-effort */ }
+        this.profiles.set(id, profile || null);
+        return this.profiles.get(id);
+    }
+
+    // Background pass over all recipient nodes → light up taxpayer rings.
+    async enrichAll(data) {
+        const recipients = data.charities.filter(c => c.filer_ein.startsWith('R:'));
+        await Promise.all(recipients.map(c => this.enrichOne(c.filer_ein, c.filer_name.replace(/^🏛\s*/, ''))));
+        if (this.lastGraph !== data) return;   // a newer query superseded this one
+        const flagged = new Set();
+        for (const c of recipients) {
+            const p = this.profiles.get(c.filer_ein);
+            if (p && p.revenue) {
+                const share = this.federalInflow(c.filer_ein) / p.revenue;
+                if (share > TAXPAYER_THRESHOLD) flagged.add(c.filer_ein);
+            }
+        }
+        this.graph.setTaxpayerFlags(flagged);
+        // refresh the inspector if the selected node just got enriched
+        if (this.graph.selectedId) {
+            const n = this.graph.nodes.find(x => x.id === this.graph.selectedId);
+            if (n) this.renderInspector(n);
+        }
+    }
+
     renderInspector(n) {
         const insp = $('inspector');
         insp.innerHTML = '';
@@ -180,28 +224,47 @@ class LiveApp {
         const inTotal = inbound.reduce((s, g) => s + g.grant_amt, 0);
         const outTotal = outbound.reduce((s, g) => s + g.grant_amt, 0);
 
+        // 990 enrichment: undefined = not fetched, null = none on file, obj = data
+        const profile = isAgency ? null : this.profiles.get(n.id);
+        if (!isAgency && profile === undefined) {
+            this.enrichOne(n.id, n.name).then(() => { if (this.graph.selectedId === n.id) this.renderInspector(n); });
+        }
+        const share = (profile && profile.revenue) ? inTotal / profile.revenue : null;
+
         // header
         const head = el('div', 'insp-head');
         head.appendChild(el('span', 'role-chip', role));
         head.appendChild(el('h2', 'insp-name', trunc(n.name, 60)));
-        head.appendChild(el('div', 'insp-sub', isAgency ? 'Federal awarding agency' : 'Federal grant recipient'));
+        const sub = isAgency ? 'Federal awarding agency'
+            : (profile && profile.ein) ? `EIN ${profile.ein}${profile.city ? ` · ${profile.city}, ${profile.state}` : ''}`
+            : 'Federal grant recipient';
+        head.appendChild(el('div', 'insp-sub', sub));
         insp.appendChild(head);
 
-        // taxpayer note (federal source)
+        // taxpayer alert
         if (isAgency) {
-            const a = el('div', 'alert-box');
-            a.innerHTML = `<div class="ah"><span class="sq"></span><span class="t">Taxpayer source</span></div>
-                <div class="body">Federal agency — every dollar shown flowing out is taxpayer money. ${abbr(outTotal)} awarded across ${outbound.length} grants in view.</div>`;
-            insp.appendChild(a);
+            insp.appendChild(elHTML('div', 'alert-box',
+                `<div class="ah"><span class="sq"></span><span class="t">Taxpayer source</span></div>
+                <div class="body">Federal agency — every dollar shown flowing out is taxpayer money. ${abbr(outTotal)} awarded across ${outbound.length} grants in view.</div>`));
+        } else if (share != null && share > TAXPAYER_THRESHOLD) {
+            insp.appendChild(elHTML('div', 'alert-box',
+                `<div class="ah"><span class="sq"></span><span class="t">Taxpayer impact</span></div>
+                <div class="body">${(share * 100).toFixed(1)}% of total revenue is federal grant money (${abbr(inTotal)} of ${abbr(profile.revenue)}).</div>`));
         }
 
-        // stats
+        // stats (USAspending + IRS-990 when available)
         const stats = el('div', 'stats');
         const stat = (k, field, v) => `<div class="stat"><span class="k">${k}${field ? ` <span class="field">${field}</span>` : ''}</span><span class="v">${v}</span></div>`;
-        stats.innerHTML =
-            stat('Grants received (in view)', '', inTotal ? abbr(inTotal) : '—') +
-            stat('Grants awarded (in view)', '', outTotal ? abbr(outTotal) : '—') +
-            stat('Connections', '', String(inbound.length + outbound.length));
+        let rows = stat('Grants received (in view)', '', inTotal ? abbr(inTotal) : '—')
+            + stat('Grants awarded (in view)', '', outTotal ? abbr(outTotal) : '—');
+        if (!isAgency && profile && profile.revenue != null) {
+            rows += stat('Total revenue', 'IRS 990 · FY' + (profile.year || ''), abbr(profile.revenue))
+                + stat('Contributions', 'totcntrbgfts', profile.contributions != null ? abbr(profile.contributions) : '—');
+        }
+        rows += stat('Connections', '', String(inbound.length + outbound.length));
+        if (!isAgency && profile === undefined) rows += stat('IRS-990 data', '', 'loading…');
+        if (!isAgency && profile === null) rows += stat('IRS-990 data', '', 'none on file');
+        stats.innerHTML = rows;
         insp.appendChild(stats);
 
         // grants in / out
@@ -228,12 +291,20 @@ class LiveApp {
         group('Grants In', inbound);
         group('Grants Out', outbound);
 
-        // action
+        // actions — built via DOM so external URLs never touch innerHTML
         const act = el('div', 'insp-actions');
-        const url = isAgency
-            ? 'https://www.usaspending.gov/agency'
+        const mkLink = (href, label) => {
+            const a = el('a', 'btn-ghost', label);
+            a.href = href; a.target = '_blank'; a.rel = 'noopener';
+            return a;
+        };
+        const usa = isAgency
+            ? 'https://www.usaspending.gov/'
             : 'https://www.usaspending.gov/search/?hash=' + encodeURIComponent(n.name);
-        act.innerHTML = `<a class="btn-ghost" href="${url}" target="_blank" rel="noopener">View on USAspending ↗</a>`;
+        act.appendChild(mkLink(usa, 'View on USAspending ↗'));
+        if (!isAgency && profile && profile.pdfUrl && /^https:\/\//.test(profile.pdfUrl)) {
+            act.appendChild(mkLink(profile.pdfUrl, 'View 990 PDF ↗'));
+        }
         insp.appendChild(act);
     }
 }
