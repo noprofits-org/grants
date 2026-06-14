@@ -27,6 +27,11 @@ class LiveApp {
             }
         });
         $('goBtn').addEventListener('click', () => this.render());
+        $('layoutBtn').addEventListener('click', () => {
+            const next = this.viz.layoutMode === 'layered' ? 'force' : 'layered';
+            this.viz.applyLayout(next);
+            $('layoutBtn').textContent = next === 'layered' ? 'Organic ⇄' : 'De-tangle ⇄';
+        });
         $('colorScheme').addEventListener('change', () => {
             if (this.lastData) this.viz.update(this.lastData, this.lastData.charities, $('colorScheme').value);
         });
@@ -100,6 +105,9 @@ class LiveApp {
             this.lastData = data;
             this.viz.update(data, data.charities, $('colorScheme').value);
             this.stats(data.stats);
+            const lb = $('layoutBtn');
+            lb.disabled = false;
+            lb.textContent = 'De-tangle ⇄';   // update() resets to organic layout
             this.loading(false);
         } catch (e) {
             console.error(e);
