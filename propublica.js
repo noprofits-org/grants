@@ -23,58 +23,64 @@ export class ProPublica {
     }
 
     // Resolve an org name to its best EIN match (or null). Guards against loose
-    // matches: a result is only accepted if its name is similar enough to the
-    // query, so a government recipient never picks up an unrelated nonprofit's
-    // 990 (which would be misinformation in a taxpayer-impact tool).
+    // matches so a recipient never picks up an unrelated — or related-but-wrong
+    // (chapter/parent) — nonprofit's 990, which would be misinformation in a
+    // taxpayer-impact tool. See bestMatch() for the gate + ranking.
+    //
+    // Caching: a deterministic result (a match, or a genuine "nothing matched"
+    // from a successful search) is cached. A transient failure (proxy/network
+    // throw) returns null WITHOUT caching, so a later re-search retries instead
+    // of being stuck on a momentary blip.
     async resolveEin(name) {
-        const key = name.toLowerCase();
+        const key = name.trim().toLowerCase();
         if (this.einCache.has(key)) return this.einCache.get(key);
-        let result = null;
+        let d;
         try {
-            const d = await this.proxied(`${BASE}/search.json?q=${encodeURIComponent(name)}`);
-            for (const o of (d.organizations || []).slice(0, 5)) {
-                if (o.ein && similar(name, o.name)) { result = { ein: String(o.ein), name: o.name }; break; }
-            }
+            d = await this.proxied(`${BASE}/search.json?q=${encodeURIComponent(name)}`);
         } catch (e) {
             console.warn('propublica search failed', name, e);
+            return null; // transient — do not cache
         }
+        const result = bestMatch(name, d.organizations || []);
         this.einCache.set(key, result);
         return result;
     }
 
-    // Fetch the latest filing's financials for an EIN (or null).
+    // Fetch the latest filing's financials for an EIN (or null). Same caching
+    // rule as resolveEin: a successful fetch is cached (even when the org has no
+    // filings on record), a transient failure is not.
     async org(ein) {
         if (this.orgCache.has(ein)) return this.orgCache.get(ein);
-        let profile = null;
+        let d;
         try {
-            const d = await this.proxied(`${BASE}/organizations/${ein}.json`);
-            const o = d.organization || {};
-            const f = (d.filings_with_data || [])[0];
-            profile = {
-                ein: String(o.ein || ein),
-                name: o.name,
-                city: o.city, state: o.state,
-                revenue: f ? num(f.totrevenue) : null,
-                contributions: f ? num(f.totcntrbgfts) : null,
-                expenses: f ? num(f.totfuncexpns) : null,
-                year: f ? f.tax_prd_yr : null,
-                pdfUrl: f ? f.pdf_url : null,
-            };
+            d = await this.proxied(`${BASE}/organizations/${ein}.json`);
         } catch (e) {
             console.warn('propublica org failed', ein, e);
+            return null; // transient — do not cache
         }
+        const o = d.organization || {};
+        const f = (d.filings_with_data || [])[0];
+        const profile = {
+            ein: String(o.ein || ein),
+            name: o.name,
+            city: o.city, state: o.state,
+            revenue: f ? num(f.totrevenue) : null,
+            contributions: f ? num(f.totcntrbgfts) : null,
+            expenses: f ? num(f.totfuncexpns) : null,
+            year: f ? f.tax_prd_yr : null,
+            pdfUrl: f ? f.pdf_url : null,
+        };
         this.orgCache.set(ein, profile);
         return profile;
     }
 
-    // Convenience: name -> full profile (or null).
+    // Convenience: name -> full profile (or null). The profile is returned even
+    // when it has no financials (revenue == null) — its EIN + matched name still
+    // let the inspector show, and flag, which 990 was attached (see #23).
     async enrich(name) {
         const hit = await this.resolveEin(name);
         if (!hit) return null;
-        const profile = await this.org(hit.ein);
-        // Guard against a fuzzy mismatch returning a profile with no financials.
-        if (!profile || profile.revenue == null) return profile;
-        return profile;
+        return this.org(hit.ein);
     }
 }
 
@@ -87,11 +93,45 @@ const STOP = new Set(['the', 'of', 'and', 'inc', 'incorporated', 'a', 'for', 'de
 function toks(s) {
     return (s || '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(t => t && !STOP.has(t));
 }
-// Accept a match when ≥60% of the smaller token set overlaps.
-function similar(a, b) {
-    const A = new Set(toks(a)), B = new Set(toks(b));
-    if (!A.size || !B.size) return false;
-    let inter = 0;
-    for (const t of A) if (B.has(t)) inter++;
-    return inter / Math.min(A.size, B.size) >= 0.6;
+
+// Pick the best 990 match for a query name from the search results, or null.
+//
+// Gate (per candidate, both STOP-stripped): keep only candidates that
+//   (a) overlap ≥60% of the smaller token set, AND
+//   (b) contain the query's MOST DISTINCTIVE token (longest, as a rare-token
+//       proxy) — this kills cross-domain false accepts that share only a common
+//       word, which the bare 60% ratio let through.
+// Ranking among survivors (the old code took the first passer, so a small
+// same-named chapter that outranked the real org won): prefer an exact
+// token-set match, then the most shared tokens, then the FEWEST extra tokens in
+// the candidate name (favours the parent org over a "…of Anytown Chapter"
+// variant), then ProPublica's own relevance order. The matched name rides back
+// out so the inspector can flag a name that differs from the recipient (#23).
+function bestMatch(query, orgs) {
+    const Q = new Set(toks(query));
+    if (!Q.size) return null;
+    const distinctive = [...Q].reduce((a, b) => (b.length > a.length ? b : a));
+
+    const passers = [];
+    (orgs || []).slice(0, 5).forEach((o, rank) => {
+        if (!o.ein || !o.name) return;
+        const C = new Set(toks(o.name));
+        if (!C.size || !C.has(distinctive)) return;
+        let inter = 0;
+        for (const t of Q) if (C.has(t)) inter++;
+        if (inter / Math.min(Q.size, C.size) < 0.6) return;
+        passers.push({
+            ein: String(o.ein), name: o.name, rank, inter,
+            exact: C.size === Q.size && inter === Q.size,
+            extras: C.size - inter,
+        });
+    });
+    if (!passers.length) return null;
+
+    passers.sort((a, b) =>
+        (b.exact - a.exact) ||      // exact token-set match wins
+        (b.inter - a.inter) ||      // most shared tokens
+        (a.extras - b.extras) ||    // fewest extra tokens (parent over chapter)
+        (a.rank - b.rank));         // else ProPublica's relevance order
+    return { ein: passers[0].ein, name: passers[0].name };
 }

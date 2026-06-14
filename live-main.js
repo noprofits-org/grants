@@ -250,6 +250,11 @@ class LiveApp {
             : (profile && profile.ein) ? `EIN ${profile.ein}${profile.city ? ` · ${profile.city}, ${profile.state}` : ''}`
             : 'Federal grant recipient';
         head.appendChild(el('div', 'insp-sub', sub));
+        // Flag when the attached 990 belongs to a differently-named org, so a
+        // chapter/parent mismatch is human-verifiable rather than silent (#23).
+        if (!isAgency && profile && profile.name && normName(profile.name) !== normName(n.name)) {
+            head.appendChild(el('div', 'insp-sub insp-match', `990 matched to “${trunc(profile.name, 48)}” — verify`));
+        }
         insp.appendChild(head);
 
         // taxpayer alert
@@ -321,6 +326,8 @@ class LiveApp {
 }
 
 function trunc(s, n) { return s && s.length > n ? s.slice(0, n - 1) + '…' : (s || ''); }
+// Loose name equality for "is this the same org?" — case/punctuation-insensitive.
+const normName = s => (s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 
 window.addEventListener('DOMContentLoaded', () => {
     if (!window.d3) { console.error('D3 not loaded'); return; }
