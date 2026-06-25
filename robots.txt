@@ -1,0 +1,5 @@
+# grants.noprofits.org — public nonprofit grant-relationship visualization.
+User-agent: *
+Allow: /
+
+Sitemap: https://grants.noprofits.org/sitemap.xml
